@@ -1,0 +1,2 @@
+ALTER TABLE public.courses
+ADD COLUMN IF NOT EXISTS outline TEXT NOT NULL DEFAULT '';
