@@ -37,6 +37,7 @@ export async function POST(req: Request) {
 
     const { data: userRes, error: userErr } = await adminSupabase.auth.getUser(token);
     if (userErr || !userRes?.user) {
+      console.error("[create-admin] Token validation failed:", userErr?.message ?? "No user found");
       return NextResponse.json(
         { error: "Unauthorized", details: userErr?.message ?? "Invalid or expired token" },
         { status: 401 }

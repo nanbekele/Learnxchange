@@ -110,7 +110,11 @@ const AdminDashboard = () => {
     setCreatingAdmin(true);
     try {
       const { data: sessionRes } = await supabase.auth.getSession();
-      const token = sessionRes.session?.access_token;
+      let token = sessionRes.session?.access_token;
+      if (!token) {
+        const { data: refreshed } = await supabase.auth.refreshSession();
+        token = refreshed.session?.access_token;
+      }
       if (!token) {
         toast({ title: "Unauthorized", description: "Please log in again.", variant: "destructive" });
         return;

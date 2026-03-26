@@ -62,13 +62,13 @@ const Landing = () => {
       const [usersRes, coursesRes, exchangesRes] = await Promise.all([
         supabase.from("profiles").select("user_id", { count: "exact", head: true }),
         supabase.from("courses").select("id", { count: "exact", head: true }).eq("status", "active"),
-        supabase.from("exchanges").select("id", { count: "exact", head: true }),
+        user ? supabase.from("exchanges").select("id", { count: "exact", head: true }) : Promise.resolve(null as any),
       ]);
 
       setTrustStats({
         users: usersRes.error ? null : usersRes.count ?? null,
         courses: coursesRes.error ? null : coursesRes.count ?? null,
-        exchanges: exchangesRes.error ? null : exchangesRes.count ?? null,
+        exchanges: !user || !exchangesRes || exchangesRes.error ? null : exchangesRes.count ?? null,
       });
     };
 
