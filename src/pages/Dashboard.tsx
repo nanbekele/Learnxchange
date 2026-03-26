@@ -10,6 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { ShoppingCart, Upload, Repeat, DollarSign, Loader2 } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
 import { useToast } from "@/hooks/use-toast";
+import SellerEarnings from "@/components/SellerEarnings";
 
 interface CourseWithDetails extends Tables<"courses"> {}
 
@@ -171,6 +172,7 @@ const Dashboard = () => {
               <TabsTrigger value="bought">Bought ({bought.length})</TabsTrigger>
               <TabsTrigger value="sold">Sold ({sold.length})</TabsTrigger>
               <TabsTrigger value="exchanged">Exchanged ({exchanges.length})</TabsTrigger>
+              <TabsTrigger value="earnings">Earnings</TabsTrigger>
             </TabsList>
             <TabsContent value="bought">
               <Card>
@@ -237,6 +239,9 @@ const Dashboard = () => {
                   )}
                 </CardContent>
               </Card>
+            </TabsContent>
+            <TabsContent value="earnings">
+              <SellerEarnings />
             </TabsContent>
           </Tabs>
         )}
