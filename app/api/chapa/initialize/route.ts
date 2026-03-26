@@ -76,7 +76,29 @@ export async function POST(req: Request) {
       .eq("id", courseId)
       .single();
 
-    if (courseErr || !course) {
+    console.log("Course lookup:", { courseId, found: !!course, error: courseErr?.message });
+
+    if (courseErr) {
+      const msg = String(courseErr.message ?? "");
+      // If the service role is missing GRANTs, Supabase will return permission errors.
+      // Those should be treated as server misconfiguration (500), not a 404.
+      if (msg.toLowerCase().includes("permission denied") || msg.toLowerCase().includes("schema")) {
+        console.error("Course lookup permission/config error:", courseErr);
+        return NextResponse.json(
+          {
+            error: "Server is missing database privileges to read courses",
+            debug: msg,
+          },
+          { status: 500 },
+        );
+      }
+
+      // If .single() errors because there are no rows, treat as true 404.
+      console.error("Course lookup error:", courseErr);
+      return NextResponse.json({ error: "Course not found", debug: msg }, { status: 404 });
+    }
+
+    if (!course) {
       return NextResponse.json({ error: "Course not found" }, { status: 404 });
     }
 

@@ -259,17 +259,9 @@ const CourseDetail = () => {
 
   const handleBuy = async () => {
     if (!user || !course) return;
-    if (!hasPaymentMethod) {
-      toast({
-        title: "Payment method required",
-        description: "Please set up a payment method in your profile before purchasing.",
-        variant: "destructive",
-      });
-      router.push("/profile");
-      return;
-    }
     setBuying(true);
     try {
+      await supabase.auth.refreshSession();
       const { data: sessionRes } = await supabase.auth.getSession();
       const token = sessionRes.session?.access_token;
       if (!token) throw new Error("You must be logged in");
@@ -300,17 +292,9 @@ const CourseDetail = () => {
 
   const handleExchange = async () => {
     if (!user || !course || !selectedCourse) return;
-    if (!hasPaymentMethod) {
-      toast({
-        title: "Payment method required",
-        description: "Please set up a payment method in your profile first.",
-        variant: "destructive",
-      });
-      router.push("/profile");
-      return;
-    }
     setExchanging(true);
     try {
+      await supabase.auth.refreshSession();
       const { error } = await supabase.from("exchanges").insert({
         requested_course_id: course.id,
         offered_course_id: selectedCourse,
@@ -542,22 +526,6 @@ const CourseDetail = () => {
             <Button onClick={() => router.push("/transactions")} variant="outline" className="w-full">
               View Transactions
             </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Payment method warning */}
-      {!isOwner && user && !checkingPayment && !hasPaymentMethod && !purchaseComplete && (
-        <Card className="border-warning/30 bg-warning/5">
-          <CardContent className="p-4 flex items-center gap-3">
-            <Wallet className="h-5 w-5 text-warning shrink-0" />
-            <div>
-              <p className="text-sm font-medium text-foreground">Payment method required</p>
-              <p className="text-xs text-muted-foreground">
-                You need to set up a payment method before you can buy or exchange courses.{" "}
-                <Link href="/profile" className="text-primary hover:underline">Set up now</Link>
-              </p>
-            </div>
           </CardContent>
         </Card>
       )}
