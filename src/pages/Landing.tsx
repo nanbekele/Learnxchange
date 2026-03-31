@@ -59,21 +59,24 @@ const Landing = () => {
 
   useEffect(() => {
     const fetchStats = async () => {
-      const [usersRes, coursesRes, exchangesRes, soldRes, boughtRes] = await Promise.all([
-        supabase.from("profiles").select("user_id", { count: "exact", head: true }),
-        supabase.from("courses").select("id", { count: "exact", head: true }).eq("status", "active"),
-        user ? supabase.from("exchanges").select("id", { count: "exact", head: true }) : Promise.resolve(null as any),
-        supabase.from("transactions").select("id", { count: "exact", head: true }).eq("status", "completed"),
-        user ? supabase.from("transactions").select("id", { count: "exact", head: true }).eq("status", "completed").eq("buyer_id", user.id) : Promise.resolve(null as any),
-      ]);
+      // Use public function that returns stats without requiring auth
+      const { data, error } = await supabase.rpc("get_platform_stats");
 
-      setTrustStats({
-        users: usersRes.error ? null : usersRes.count ?? null,
-        courses: coursesRes.error ? null : coursesRes.count ?? null,
-        exchanges: !user || !exchangesRes || exchangesRes.error ? null : exchangesRes.count ?? null,
-        sold: soldRes.error ? null : soldRes.count ?? null,
-        bought: !user || !boughtRes || boughtRes.error ? null : boughtRes.count ?? null,
-      });
+      if (error) {
+        console.error("Error fetching platform stats:", error);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        const stats = data[0];
+        setTrustStats({
+          users: Number(stats.users) ?? null,
+          courses: Number(stats.courses) ?? null,
+          exchanges: Number(stats.exchanges) ?? null,
+          sold: Number(stats.sold) ?? null,
+          bought: Number(stats.bought) ?? null,
+        });
+      }
     };
 
     fetchStats();
