@@ -251,7 +251,7 @@ const Profile = () => {
               </Button>
             </div>
             <p className="text-sm text-muted-foreground">
-              Set up your payment accounts to buy and sell courses. You need at least one payment method to transact.
+              Add a payout method to receive withdrawals as a seller. Required only if you sell courses.
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -293,7 +293,7 @@ const Profile = () => {
               <div className="flex justify-center py-6"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
             ) : paymentMethods.length === 0 ? (
               <p className="text-center text-muted-foreground py-6">
-                No payment methods added yet. Add one to start buying and selling courses.
+                No payout methods added yet. Add one if you plan to sell courses and receive withdrawals.
               </p>
             ) : (
               <div className="space-y-3">

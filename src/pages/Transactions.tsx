@@ -15,13 +15,6 @@ import { useToast } from "@/hooks/use-toast";
 import type { Tables } from "@/integrations/supabase/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-const METHODS_MAP: Record<string, string> = {
-  telebirr: "Telebirr",
-  ebirr: "eBirr",
-  paypal: "PayPal",
-  bank: "Direct Bank Transfer",
-};
-
 interface PaymentInfo {
   method: string;
   account_name: string;
@@ -38,11 +31,6 @@ const Transactions = () => {
   const [loading, setLoading] = useState(true);
   const [ratedTransactionIds, setRatedTransactionIds] = useState<Record<string, boolean>>({});
   const [ratedExchangeIds, setRatedExchangeIds] = useState<Record<string, boolean>>({});
-  // Seller payment detail dialog
-  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
-  const [paymentInfo, setPaymentInfo] = useState<PaymentInfo | null>(null);
-  const [paymentLoading, setPaymentLoading] = useState(false);
-  const [paymentSellerName, setPaymentSellerName] = useState("");
 
   // Rating dialog
   const [ratingDialogOpen, setRatingDialogOpen] = useState(false);
@@ -178,30 +166,33 @@ const Transactions = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, transactionIds.join(","), exchangeIds.join(",")]);
 
-  const handleExchangeAction = async (exchangeId: string, action: "accepted" | "rejected") => {
+  const handleExchangeAction = async (exchangeId: string, action: "accepted" | "rejected", ex?: Tables<"exchanges">) => {
     const { error } = await supabase.from("exchanges").update({ status: action }).eq("id", exchangeId);
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } else {
       toast({ title: action === "accepted" ? "Exchange accepted!" : "Exchange rejected" });
+      
+      // Notify the requester about the exchange response
+      const exchange = ex || exchanges.find((e) => e.id === exchangeId);
+      if (exchange) {
+        const requestedCourse = coursesMap[exchange.requested_course_id]?.title ?? "course";
+        const offeredCourse = coursesMap[exchange.offered_course_id]?.title ?? "course";
+        await supabase.from("notifications").insert({
+          user_id: exchange.requester_id,
+          title: action === "accepted" ? "Exchange accepted" : "Exchange rejected",
+          body: action === "accepted" 
+            ? `Your offer to exchange "${offeredCourse}" for "${requestedCourse}" was accepted.`
+            : `Your offer to exchange "${offeredCourse}" for "${requestedCourse}" was rejected.`,
+          type: action === "accepted" ? "success" : "warning",
+          link: "/transactions",
+        });
+      }
+      
       fetchData();
     }
   };
 
-  const showSellerPayment = async (sellerId: string) => {
-    setPaymentLoading(true);
-    setPaymentDialogOpen(true);
-    setPaymentInfo(null);
-    const [pmRes, profileRes] = await Promise.all([
-      supabase.from("user_payment_methods").select("method, account_name, account_number").eq("user_id", sellerId).eq("is_default", true).limit(1),
-      supabase.from("profiles").select("full_name").eq("user_id", sellerId).single(),
-    ]);
-    setPaymentSellerName(profileRes.data?.full_name || "Seller");
-    if (pmRes.data && pmRes.data.length > 0) {
-      setPaymentInfo(pmRes.data[0] as PaymentInfo);
-    }
-    setPaymentLoading(false);
-  };
 
   const openRatingDialog = async (target: { type: "transaction" | "exchange"; id: string; ratedId: string }) => {
     if (!user) return;
@@ -279,7 +270,6 @@ const Transactions = () => {
                           courseId={t.course_id}
                           courseName={coursesMap[t.course_id]?.title ?? "Untitled"}
                           courseOwnerName={profilesMap[coursesMap[t.course_id]?.user_id ?? ""]?.full_name ?? ""}
-                          onShowPayment={showSellerPayment}
                           onRate={(sellerId: string) => openRatingDialog({ type: "transaction", id: t.id, ratedId: sellerId })}
                           canRate={t.status === "completed" && t.buyer_id === user!.id && !ratedTransactionIds[t.id]}
                         />
@@ -317,7 +307,6 @@ const Transactions = () => {
                           courseId={t.course_id}
                           courseName={coursesMap[t.course_id]?.title ?? "Untitled"}
                           courseOwnerName={profilesMap[coursesMap[t.course_id]?.user_id ?? ""]?.full_name ?? ""}
-                          onShowPayment={showSellerPayment}
                           onRate={(sellerId: string) => openRatingDialog({ type: "transaction", id: t.id, ratedId: sellerId })}
                           canRate={t.status === "completed" && !ratedTransactionIds[t.id]}
                         />
@@ -343,7 +332,6 @@ const Transactions = () => {
                           courseId={t.course_id}
                           courseName={coursesMap[t.course_id]?.title ?? "Untitled"}
                           courseOwnerName={profilesMap[coursesMap[t.course_id]?.user_id ?? ""]?.full_name ?? ""}
-                          onShowPayment={showSellerPayment}
                           onRate={() => {}}
                           canRate={false}
                         />
@@ -382,33 +370,6 @@ const Transactions = () => {
         )}
       </div>
 
-      {/* Seller Payment Details Dialog */}
-      <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Wallet className="h-5 w-5 text-primary" /> Seller Payment Details
-            </DialogTitle>
-          </DialogHeader>
-          {paymentLoading ? (
-            <div className="flex justify-center py-6"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
-          ) : paymentInfo ? (
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">Send payment to <strong className="text-foreground">{paymentSellerName}</strong> using:</p>
-              <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-2">
-                <div className="flex items-center gap-2">
-                  <Wallet className="h-4 w-4 text-primary" />
-                  <span className="font-medium text-foreground">{METHODS_MAP[paymentInfo.method] || paymentInfo.method}</span>
-                </div>
-                <p className="text-sm text-muted-foreground">Account Name: <span className="text-foreground font-medium">{paymentInfo.account_name}</span></p>
-                <p className="text-sm text-muted-foreground">Account Number: <span className="text-foreground font-medium">{paymentInfo.account_number}</span></p>
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground py-4">Seller has not set up payment details yet.</p>
-          )}
-        </DialogContent>
-      </Dialog>
 
       {/* Rating Dialog */}
       <Dialog open={ratingDialogOpen} onOpenChange={setRatingDialogOpen}>
@@ -457,7 +418,6 @@ const TransactionRow = ({
   courseId,
   courseName,
   courseOwnerName,
-  onShowPayment,
   onRate,
   canRate,
 }: {
@@ -466,7 +426,6 @@ const TransactionRow = ({
   courseId: string;
   courseName: string;
   courseOwnerName: string;
-  onShowPayment: (sellerId: string) => void;
   onRate: (sellerId: string) => void;
   canRate: boolean;
 }) => {
@@ -490,11 +449,6 @@ const TransactionRow = ({
         </p>
       </div>
       <div className="flex items-center gap-2">
-        {isBuyer && t.status === "completed" && (
-          <Button size="sm" variant="ghost" className="gap-1 text-xs" onClick={() => onShowPayment(t.seller_id)}>
-            <Wallet className="h-3.5 w-3.5" /> Pay Seller
-          </Button>
-        )}
         {isBuyer && canRate && (
           <Button size="sm" variant="outline" className="text-xs" onClick={() => onRate(t.seller_id)}>
             Rate Seller
@@ -518,7 +472,7 @@ const ExchangeRow = ({
   userId: string;
   coursesMap: Record<string, Tables<"courses">>;
   profilesMap: Record<string, Tables<"profiles">>;
-  onAction: (id: string, action: "accepted" | "rejected") => void;
+  onAction: (id: string, action: "accepted" | "rejected", ex?: Tables<"exchanges">) => void;
   onRate: (ratedId: string) => void;
   canRate: boolean;
 }) => {
@@ -566,10 +520,10 @@ const ExchangeRow = ({
       <div className="flex items-center gap-2">
         {ex.status === "pending" && isOwner ? (
           <>
-            <Button size="sm" variant="ghost" className="text-success" onClick={() => onAction(ex.id, "accepted")}>
+            <Button size="sm" variant="ghost" className="text-success" onClick={() => onAction(ex.id, "accepted", ex)}>
               <Check className="h-4 w-4" />
             </Button>
-            <Button size="sm" variant="ghost" className="text-destructive" onClick={() => onAction(ex.id, "rejected")}>
+            <Button size="sm" variant="ghost" className="text-destructive" onClick={() => onAction(ex.id, "rejected", ex)}>
               <X className="h-4 w-4" />
             </Button>
           </>

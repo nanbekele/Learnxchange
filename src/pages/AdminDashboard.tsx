@@ -57,6 +57,12 @@ const AdminDashboard = () => {
   const [activeMessage, setActiveMessage] = useState<any | null>(null);
   const [replying, setReplying] = useState(false);
 
+  // Payout confirmation dialog
+  const [payoutDialogOpen, setPayoutDialogOpen] = useState(false);
+  const [selectedPayout, setSelectedPayout] = useState<Tables<"payout_requests"> | null>(null);
+  const [selectedSeller, setSelectedSeller] = useState<any | null>(null);
+  const [markingPaid, setMarkingPaid] = useState(false);
+
   useEffect(() => {
     if (!adminLoading && !isAdmin) {
       router.replace("/dashboard");
@@ -150,26 +156,39 @@ const AdminDashboard = () => {
     }
   };
 
-  const markPayoutPaid = async (payoutId: string) => {
-    if (!user) return;
+  const openPayoutDialog = (payout: Tables<"payout_requests">) => {
+    const seller = users.find((u: any) => u.user_id === payout.seller_id);
+    setSelectedPayout(payout);
+    setSelectedSeller(seller || null);
+    setPayoutDialogOpen(true);
+  };
+
+  const confirmMarkPayoutPaid = async () => {
+    if (!user || !selectedPayout) return;
+    setMarkingPaid(true);
     try {
       const now = new Date().toISOString();
       const { error: e1 } = await supabase
         .from("payout_requests")
         .update({ status: "paid", reviewed_by: user.id, reviewed_at: now, paid_at: now, updated_at: now })
-        .eq("id", payoutId);
+        .eq("id", selectedPayout.id);
       if (e1) throw e1;
 
       const { error: e2 } = await supabase
         .from("seller_earnings")
         .update({ status: "paid", updated_at: now })
-        .eq("payout_request_id", payoutId);
+        .eq("payout_request_id", selectedPayout.id);
       if (e2) throw e2;
 
       toast({ title: "Payout marked as paid" });
+      setPayoutDialogOpen(false);
+      setSelectedPayout(null);
+      setSelectedSeller(null);
       fetchAll();
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setMarkingPaid(false);
     }
   };
 
@@ -397,7 +416,7 @@ const AdminDashboard = () => {
                   </div>
                   <div className="space-y-2">
                     <Label className="flex items-center gap-2">
-                      <Wallet className="h-4 w-4" /> Payment Method
+                      <Wallet className="h-4 w-4" /> Platform Settlement Method
                     </Label>
                     <Select value={paymentMethod} onValueChange={setPaymentMethod}>
                       <SelectTrigger>
@@ -410,11 +429,11 @@ const AdminDashboard = () => {
                         <SelectItem value="bank">Direct Bank Transfer</SelectItem>
                       </SelectContent>
                     </Select>
-                    <p className="text-xs text-muted-foreground">Commission collection method</p>
+                    <p className="text-xs text-muted-foreground">Platform account for commission/settlement tracking. Buyers still pay via Chapa.</p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="account" className="flex items-center gap-2">
-                      <DollarSign className="h-4 w-4" /> Account Details
+                      <DollarSign className="h-4 w-4" /> Platform Settlement Account
                     </Label>
                     <Input
                       id="account"
@@ -427,7 +446,7 @@ const AdminDashboard = () => {
                       value={paymentAccount}
                       onChange={(e) => setPaymentAccount(e.target.value)}
                     />
-                    <p className="text-xs text-muted-foreground">Where commission payments will be collected</p>
+                    <p className="text-xs text-muted-foreground">Account where platform commission/settlement is tracked. Not used for Chapa payments.</p>
                   </div>
                 </div>
                 <Button onClick={handleSaveSettings} disabled={saving} className="gap-2">
@@ -571,30 +590,45 @@ const AdminDashboard = () => {
                       const seller = (users ?? []).find((u: any) => u.user_id === p.seller_id);
                       const sellerName = seller?.full_name || "Seller";
                       const status = String(p.status || "requested");
+                      const isManual = status === "manual_review";
+                      const needsAction = status === "requested" || isManual;
                       return (
                         <div key={p.id} className="rounded-lg border border-border p-4">
                           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                             <div className="min-w-0">
                               <p className="text-sm font-medium text-foreground truncate">{sellerName}</p>
                               <p className="text-xs text-muted-foreground">
-                                Amount: ETB {Number(p.amount).toFixed(2)} · Method: {p.method}
+                                Amount: ETB {Number(p.amount).toFixed(2)} · Method: {p.method || "Not set"}
                               </p>
-                              <p className="text-xs text-muted-foreground">
-                                Account: {p.account_name} · {p.account_number}
-                              </p>
+                              {p.account_name && (
+                                <p className="text-xs text-muted-foreground">
+                                  Account: {p.account_name} · {p.account_number}
+                                </p>
+                              )}
+                              {isManual && (
+                                <p className="text-xs text-warning mt-1">
+                                  ⚠️ Manual payout required - seller has no payment method
+                                </p>
+                              )}
+                              {p.admin_note && (
+                                <p className="text-xs text-muted-foreground mt-1">Note: {p.admin_note}</p>
+                              )}
                               <p className="mt-1 text-xs text-muted-foreground">Requested: {new Date(p.requested_at).toLocaleString()}</p>
                             </div>
                             <div className="flex items-center gap-2">
-                              <Badge variant={status === "paid" ? "default" : status === "rejected" ? "destructive" : "secondary"}>
-                                {status}
+                              <Badge variant={status === "paid" ? "default" : isManual ? "destructive" : "secondary"}>
+                                {isManual ? "manual" : status}
                               </Badge>
-                              <Button
-                                size="sm"
-                                onClick={() => markPayoutPaid(p.id)}
-                                disabled={status !== "requested"}
-                              >
-                                Mark Paid
-                              </Button>
+                              {/* Only show button for sellers without payment method */}
+                              {!p.method && !p.account_number && (
+                                <Button
+                                  size="sm"
+                                  onClick={() => openPayoutDialog(p)}
+                                  disabled={status === "paid"}
+                                >
+                                  Pay Seller
+                                </Button>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -606,6 +640,63 @@ const AdminDashboard = () => {
             </Card>
           </TabsContent>
         </Tabs>
+
+        {/* Payout Confirmation Dialog */}
+        <Dialog open={payoutDialogOpen} onOpenChange={setPayoutDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Mail className="h-5 w-5" /> 
+                Contact Seller for Payment Details
+              </DialogTitle>
+              <DialogDescription>
+                This seller has not set up a payment method. Contact them to request payment details.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-2">
+                <p className="text-sm">
+                  <span className="text-muted-foreground">Seller:</span>{" "}
+                  <span className="font-medium text-foreground">{selectedSeller?.full_name || "Unknown"}</span>
+                </p>
+                <p className="text-sm">
+                  <span className="text-muted-foreground">Email:</span>{" "}
+                  <span className="font-medium text-foreground">{selectedSeller?.email || "N/A"}</span>
+                </p>
+                <p className="text-sm">
+                  <span className="text-muted-foreground">Amount:</span>{" "}
+                  <span className="font-medium text-foreground">ETB {Number(selectedPayout?.amount ?? 0).toFixed(2)}</span>
+                </p>
+                {selectedPayout?.method && (
+                  <p className="text-sm">
+                    <span className="text-muted-foreground">Payment Method:</span>{" "}
+                    <span className="font-medium text-foreground">{selectedPayout.method}</span>
+                  </p>
+                )}
+                {selectedPayout?.account_number && (
+                  <p className="text-sm">
+                    <span className="text-muted-foreground">Account:</span>{" "}
+                    <span className="font-medium text-foreground">{selectedPayout.account_number}</span>
+                  </p>
+                )}
+              </div>
+            </div>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setPayoutDialogOpen(false)}>
+                Close
+              </Button>
+              {selectedSeller?.email && (
+                <a 
+                  href={`mailto:${selectedSeller.email}?subject=Payment Details Required for Payout&body=Hi ${selectedSeller.full_name || "Seller"},%0D%0A%0D%0APlease provide your payment method details to receive your payout of ETB ${Number(selectedPayout?.amount ?? 0).toFixed(2)}.%0D%0A%0D%0AThank you!`}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-primary rounded-md hover:bg-primary/90"
+                >
+                  <Mail className="h-4 w-4" />
+                  Contact Seller
+                </a>
+              )}
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={replyOpen} onOpenChange={setReplyOpen}>
           <DialogContent>

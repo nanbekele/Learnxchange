@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import SellerEarnings from "@/components/SellerEarnings";
 
 interface CourseWithDetails extends Tables<"courses"> {}
+interface BuyerDetails { full_name: string | null; email: string | null; }
 
 const Dashboard = () => {
   const { user } = useAuth();
@@ -20,7 +21,7 @@ const Dashboard = () => {
   const displayName = user?.user_metadata?.full_name || "User";
 
   const [bought, setBought] = useState<(Tables<"transactions"> & { course?: CourseWithDetails })[]>([]);
-  const [sold, setSold] = useState<(Tables<"transactions"> & { course?: CourseWithDetails })[]>([]);
+  const [sold, setSold] = useState<(Tables<"transactions"> & { course?: CourseWithDetails; buyer?: BuyerDetails })[]>([]);
   const [exchanges, setExchanges] = useState<Tables<"exchanges">[]>([]);
   const [loading, setLoading] = useState(true);
   const [earningsPending, setEarningsPending] = useState(0);
@@ -53,27 +54,36 @@ const Dashboard = () => {
       setEarningsPending(pending);
       setEarningsAvailable(available);
 
-      // Fetch course details for transactions
+      // Fetch course and buyer details for transactions
       const allCourseIds = [
         ...(boughtRes.data ?? []).map((t) => t.course_id),
         ...(soldRes.data ?? []).map((t) => t.course_id),
       ];
+      const allBuyerIds = [
+        ...(soldRes.data ?? []).map((t) => t.buyer_id),
+      ];
       const uniqueIds = [...new Set(allCourseIds)];
+      const uniqueBuyerIds = [...new Set(allBuyerIds)];
       let coursesMap: Record<string, CourseWithDetails> = {};
+      let buyersMap: Record<string, { full_name: string | null; email: string | null }> = {};
       if (uniqueIds.length > 0) {
         const { data: courses } = await supabase.from("courses").select("*").in("id", uniqueIds);
         courses?.forEach((c) => { coursesMap[c.id] = c; });
       }
+      if (uniqueBuyerIds.length > 0) {
+        const { data: buyers } = await supabase.from("profiles").select("id, full_name, email").in("id", uniqueBuyerIds);
+        buyers?.forEach((b) => { buyersMap[b.id] = b; });
+      }
 
       setBought((boughtRes.data ?? []).map((t) => ({ ...t, course: coursesMap[t.course_id] })));
-      setSold((soldRes.data ?? []).map((t) => ({ ...t, course: coursesMap[t.course_id] })));
+      setSold((soldRes.data ?? []).map((t) => ({ ...t, course: coursesMap[t.course_id], buyer: buyersMap[t.buyer_id] })));
       setExchanges(exchRes.data ?? []);
       setLoading(false);
     };
     load();
   }, [user]);
 
-  const totalEarnings = sold.reduce((sum, t) => sum + Number(t.amount), 0);
+  const totalEarnings = sold.reduce((sum, t) => sum + Number(t.seller_amount ?? 0), 0);
 
   const requestWithdrawal = async () => {
     if (!user) return;
@@ -208,9 +218,12 @@ const Dashboard = () => {
                         <div key={t.id} className="flex items-center justify-between rounded-lg border border-border p-4">
                           <div>
                             <p className="font-medium text-foreground">{t.course?.title ?? "Untitled"}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Bought by: <span className="text-foreground/80">{t.buyer?.full_name || t.buyer?.email || "Unknown"}</span>
+                            </p>
                             <p className="text-xs text-muted-foreground">{new Date(t.created_at).toLocaleDateString()}</p>
                           </div>
-                          <Badge className="bg-success text-success-foreground">ETB {Number(t.amount).toFixed(2)}</Badge>
+                          <Badge className="bg-success text-success-foreground">ETB {Number(t.seller_amount ?? t.amount).toFixed(2)}</Badge>
                         </div>
                       ))}
                     </div>

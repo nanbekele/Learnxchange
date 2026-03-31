@@ -9,6 +9,7 @@ import {
   Search,
   GraduationCap,
   Shield,
+  Bell,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/contexts/AuthContext";
@@ -38,6 +39,7 @@ const mainItems = [
   { title: "My Courses", url: "/my-courses", icon: BookOpen },
   { title: "My Learning", url: "/my-learning", icon: Library },
   { title: "Transactions", url: "/transactions", icon: History },
+  { title: "Notifications", url: "/notifications", icon: Bell },
 ];
 
 export function AppSidebar() {

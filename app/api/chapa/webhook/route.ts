@@ -58,7 +58,7 @@ export async function GET(req: Request) {
           transaction_id: tx.id,
           amount: Number(tx.seller_amount),
           status: "pending",
-          available_at: addDaysIso(7),
+          available_at: addDaysIso(3),
         },
         { onConflict: "transaction_id" },
       );
@@ -141,7 +141,7 @@ export async function POST(req: Request) {
             transaction_id: tx.id,
             amount: Number(tx.seller_amount),
             status: "pending",
-            available_at: addDaysIso(7),
+            available_at: addDaysIso(3),
           },
           { onConflict: "transaction_id" },
         );

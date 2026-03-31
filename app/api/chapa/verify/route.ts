@@ -49,7 +49,7 @@ export async function POST(req: Request) {
 
     const { data: tx, error: txErr } = await adminSupabase
       .from("transactions")
-      .select("id, buyer_id, seller_id, seller_amount, status, commission_amount, tx_ref")
+      .select("id, buyer_id, seller_id, amount, seller_amount, status, commission_amount, tx_ref")
       .eq("id", transactionId)
       .single();
 
@@ -104,7 +104,7 @@ export async function POST(req: Request) {
           transaction_id: tx.id,
           amount: Number(tx.seller_amount),
           status: "pending",
-          available_at: addDaysIso(7),
+          available_at: addDaysIso(3),
         },
         { onConflict: "transaction_id" },
       );
@@ -117,13 +117,36 @@ export async function POST(req: Request) {
         .eq("transaction_id", tx.id)
         .limit(1);
       if ((existingCommission ?? []).length === 0) {
+        const rate = Number(tx.amount ?? 0) > 0
+          ? +((Number(tx.commission_amount) / Number(tx.amount)) * 100).toFixed(2)
+          : 0;
         await adminSupabase.from("commissions").insert({
           transaction_id: tx.id,
           amount: Number(tx.commission_amount),
-          rate: 0,
+          rate,
         });
       }
     }
+
+    // Send notifications to buyer and seller
+    await Promise.all([
+      // Buyer notification
+      adminSupabase.from("notifications").insert({
+        user_id: tx.buyer_id,
+        title: "Purchase completed",
+        body: `Your purchase was successful. You can now access your course.`,
+        type: "success",
+        link: "/my-learning",
+      }),
+      // Seller notification
+      tx.seller_id && adminSupabase.from("notifications").insert({
+        user_id: tx.seller_id,
+        title: "Course sold",
+        body: `You earned ETB ${Number(tx.seller_amount ?? 0).toFixed(2)} from a new sale. Earnings will be available for withdrawal in 3 days.`,
+        type: "success",
+        link: "/dashboard",
+      }),
+    ]);
 
     return NextResponse.json({ ok: true, status: "completed" });
   } catch (err: any) {

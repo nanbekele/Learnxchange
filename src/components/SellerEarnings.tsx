@@ -158,7 +158,7 @@ export default function SellerEarnings() {
               <Clock className="h-4 w-4" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Pending (7-day hold)</p>
+              <p className="text-xs text-muted-foreground">Pending (3-day hold)</p>
               <p className="font-display text-lg font-bold text-foreground">
                 ETB {summary.pending.toFixed(2)}
               </p>

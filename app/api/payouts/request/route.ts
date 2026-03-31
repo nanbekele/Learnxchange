@@ -36,19 +36,14 @@ export async function POST(req: Request) {
     });
 
     // Get seller's default payment method
-    const { data: paymentMethod, error: pmError } = await adminSupabase
+    const { data: paymentMethod } = await adminSupabase
       .from("user_payment_methods")
       .select("method, account_name, account_number")
       .eq("user_id", user.id)
       .eq("is_default", true)
       .single();
 
-    if (pmError || !paymentMethod) {
-      return NextResponse.json(
-        { error: "No default payment method found. Please add a payment method in your profile." },
-        { status: 400 }
-      );
-    }
+    const hasPaymentMethod = !!paymentMethod;
 
     // Calculate available earnings (pending and past available_at date)
     const { data: availableEarnings, error: earningsError } = await adminSupabase
@@ -64,7 +59,7 @@ export async function POST(req: Request) {
 
     if (!availableEarnings || availableEarnings.length === 0) {
       return NextResponse.json(
-        { error: "No available earnings to withdraw. Earnings become available after 7 days." },
+        { error: "No available earnings to withdraw. Earnings become available after 3 days." },
         { status: 400 }
       );
     }
@@ -75,17 +70,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No available earnings to withdraw" }, { status: 400 });
     }
 
-    // Create payout request
+    // Create payout request - auto if payment method exists, manual review if not
+    const payoutStatus = hasPaymentMethod ? "requested" : "manual_review";
+    const adminNote = hasPaymentMethod ? null : "Seller has no payment method. Admin must process manually.";
+
     const { data: payoutRequest, error: payoutError } = await adminSupabase
       .from("payout_requests")
       .insert({
         seller_id: user.id,
         amount: totalAmount,
-        status: "requested",
-        method: paymentMethod.method,
-        account_name: paymentMethod.account_name,
-        account_number: paymentMethod.account_number,
+        status: payoutStatus,
+        method: paymentMethod?.method || null,
+        account_name: paymentMethod?.account_name || null,
+        account_number: paymentMethod?.account_number || null,
         requested_at: new Date().toISOString(),
+        admin_note: adminNote,
       })
       .select("id")
       .single();
@@ -99,10 +98,11 @@ export async function POST(req: Request) {
 
     // Update seller earnings to link to payout request and change status
     const earningIds = availableEarnings.map((e) => e.id);
+    const earningStatus = hasPaymentMethod ? "requested" : "manual_review";
     const { error: updateError } = await adminSupabase
       .from("seller_earnings")
       .update({
-        status: "requested",
+        status: earningStatus,
         payout_request_id: payoutRequest.id,
         updated_at: new Date().toISOString(),
       })
@@ -112,11 +112,47 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
+    const message = hasPaymentMethod
+      ? `Withdrawal request created for ETB ${totalAmount.toFixed(2)}. Will be processed automatically.`
+      : `Withdrawal request created for ETB ${totalAmount.toFixed(2)}. Admin will process manually.`;
+
+    // Send notification to seller
+    await adminSupabase.from("notifications").insert({
+      user_id: user.id,
+      title: "Payout requested",
+      body: message,
+      type: hasPaymentMethod ? "info" : "warning",
+      link: "/dashboard",
+    });
+
+    // If manual review needed, notify admins
+    if (!hasPaymentMethod) {
+      const { data: admins } = await adminSupabase
+        .from("user_roles")
+        .select("user_id")
+        .eq("role", "admin");
+      
+      if (admins && admins.length > 0) {
+        await Promise.all(
+          admins.map((admin) =>
+            adminSupabase.from("notifications").insert({
+              user_id: admin.user_id,
+              title: "Manual payout required",
+              body: `Seller requested a payout of ETB ${totalAmount.toFixed(2)} but has no payment method set up.`,
+              type: "warning",
+              link: "/admin",
+            })
+          )
+        );
+      }
+    }
+
     return NextResponse.json({
       success: true,
       payoutRequestId: payoutRequest.id,
       amount: totalAmount,
-      message: `Withdrawal request created for ETB ${totalAmount.toFixed(2)}`,
+      autoProcess: hasPaymentMethod,
+      message,
     });
   } catch (err: any) {
     console.error("Payout request error:", err);
