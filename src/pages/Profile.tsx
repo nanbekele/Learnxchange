@@ -63,14 +63,29 @@ const Profile = () => {
         setReputationScore(Number(data?.reputation_score ?? 0));
       });
 
-    supabase
-      // @ts-expect-error - supabase-js supports count/head options
-      .from("ratings")
-      .select("id", { count: "exact", head: true })
-      .eq("rated_id", user.id)
-      .then((res: any) => {
-        setRatingsCount(Number(res?.count ?? 0));
-      });
+    // Fetch course ratings count (number of ratings on user's courses)
+    const fetchCourseRatingsCount = async () => {
+      if (!user) return;
+      // Get user's courses
+      const { data: userCourses } = await supabase
+        .from("courses")
+        .select("id")
+        .eq("user_id", user.id);
+      
+      if (userCourses && userCourses.length > 0) {
+        const courseIds = userCourses.map((c) => c.id);
+        // Count ratings on user's courses
+        const { count } = await supabase
+          .from("course_ratings")
+          .select("id", { count: "exact", head: true })
+          .in("course_id", courseIds);
+        setRatingsCount(Number(count ?? 0));
+      } else {
+        setRatingsCount(0);
+      }
+    };
+
+    fetchCourseRatingsCount();
   }, [user]);
 
   const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -215,7 +230,7 @@ const Profile = () => {
                 <div className="mt-1 flex items-center gap-1 text-sm text-warning">
                   <Star className="h-4 w-4 fill-current" />
                   <span className="font-medium">{reputationScore.toFixed(1)}</span>
-                  <span className="text-muted-foreground">· {ratingsCount === 0 ? "No ratings yet" : `${ratingsCount} rating${ratingsCount === 1 ? "" : "s"}`}</span>
+                  <span className="text-muted-foreground">· {ratingsCount === 0 ? "No course ratings yet" : `${ratingsCount} course rating${ratingsCount === 1 ? "" : "s"}`}</span>
                 </div>
               </div>
             </div>

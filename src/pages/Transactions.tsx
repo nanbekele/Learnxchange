@@ -1,25 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import AppLayout from "@/components/AppLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { History, Loader2, Check, X, Wallet } from "lucide-react";
+import { History, Loader2, Check, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import type { Tables } from "@/integrations/supabase/types";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
-interface PaymentInfo {
-  method: string;
-  account_name: string;
-  account_number: string;
-}
 
 const Transactions = () => {
   const { user } = useAuth();
@@ -29,19 +19,6 @@ const Transactions = () => {
   const [coursesMap, setCoursesMap] = useState<Record<string, Tables<"courses">>>({});
   const [profilesMap, setProfilesMap] = useState<Record<string, Tables<"profiles">>>({});
   const [loading, setLoading] = useState(true);
-  const [ratedTransactionIds, setRatedTransactionIds] = useState<Record<string, boolean>>({});
-  const [ratedExchangeIds, setRatedExchangeIds] = useState<Record<string, boolean>>({});
-
-  // Rating dialog
-  const [ratingDialogOpen, setRatingDialogOpen] = useState(false);
-  const [ratingSubmitting, setRatingSubmitting] = useState(false);
-  const [ratingScore, setRatingScore] = useState("5");
-  const [ratingComment, setRatingComment] = useState("");
-  const [ratingTarget, setRatingTarget] = useState<
-    | { type: "transaction"; id: string; ratedId: string; ratedName: string }
-    | { type: "exchange"; id: string; ratedId: string; ratedName: string }
-    | null
-  >(null);
 
   const fetchData = async () => {
     if (!user) return;
@@ -129,51 +106,12 @@ const Transactions = () => {
     };
   }, [user, toast]);
 
-  const transactionIds = useMemo(() => transactions.map((t) => t.id), [transactions]);
-  const exchangeIds = useMemo(() => exchanges.map((e) => e.id), [exchanges]);
-
-  const fetchMyRatings = async () => {
-    if (!user) return;
-
-    const txIds = transactionIds;
-    const exIds = exchangeIds;
-
-    const [txRatingsRes, exRatingsRes] = await Promise.all([
-      txIds.length > 0
-        ? supabase.from("ratings").select("transaction_id").eq("rater_id", user.id).in("transaction_id", txIds)
-        : Promise.resolve({ data: [] as any[] } as any),
-      exIds.length > 0
-        ? supabase.from("ratings").select("exchange_id").eq("rater_id", user.id).in("exchange_id", exIds)
-        : Promise.resolve({ data: [] as any[] } as any),
-    ]);
-
-    const txMap: Record<string, boolean> = {};
-    (txRatingsRes.data ?? []).forEach((r: any) => {
-      if (r.transaction_id) txMap[r.transaction_id] = true;
-    });
-    const exMap: Record<string, boolean> = {};
-    (exRatingsRes.data ?? []).forEach((r: any) => {
-      if (r.exchange_id) exMap[r.exchange_id] = true;
-    });
-
-    setRatedTransactionIds(txMap);
-    setRatedExchangeIds(exMap);
-  };
-
-  useEffect(() => {
-    if (!user) return;
-    fetchMyRatings();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, transactionIds.join(","), exchangeIds.join(",")]);
-
   const handleExchangeAction = async (exchangeId: string, action: "accepted" | "rejected", ex?: Tables<"exchanges">) => {
     const { error } = await supabase.from("exchanges").update({ status: action }).eq("id", exchangeId);
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } else {
       toast({ title: action === "accepted" ? "Exchange accepted!" : "Exchange rejected" });
-      
-      // Notify the requester about the exchange response
       const exchange = ex || exchanges.find((e) => e.id === exchangeId);
       if (exchange) {
         const requestedCourse = coursesMap[exchange.requested_course_id]?.title ?? "course";
@@ -188,45 +126,7 @@ const Transactions = () => {
           link: "/transactions",
         });
       }
-      
       fetchData();
-    }
-  };
-
-
-  const openRatingDialog = async (target: { type: "transaction" | "exchange"; id: string; ratedId: string }) => {
-    if (!user) return;
-    setRatingScore("5");
-    setRatingComment("");
-    setRatingDialogOpen(true);
-    setRatingTarget(null);
-
-    const { data: prof } = await supabase.from("profiles").select("full_name").eq("user_id", target.ratedId).single();
-    const ratedName = prof?.full_name || "User";
-    setRatingTarget({ type: target.type as any, id: target.id, ratedId: target.ratedId, ratedName });
-  };
-
-  const submitRating = async () => {
-    if (!user || !ratingTarget) return;
-    setRatingSubmitting(true);
-    try {
-      const payload: any = {
-        rater_id: user.id,
-        rated_id: ratingTarget.ratedId,
-        score: parseInt(ratingScore, 10),
-        comment: ratingComment.trim() ? ratingComment.trim() : null,
-        transaction_id: ratingTarget.type === "transaction" ? ratingTarget.id : null,
-        exchange_id: ratingTarget.type === "exchange" ? ratingTarget.id : null,
-      };
-      const { error } = await supabase.from("ratings").insert(payload);
-      if (error) throw error;
-      toast({ title: "Thanks for your rating!" });
-      setRatingDialogOpen(false);
-      await fetchMyRatings();
-    } catch (err: any) {
-      toast({ title: "Rating failed", description: err.message, variant: "destructive" });
-    } finally {
-      setRatingSubmitting(false);
     }
   };
 
@@ -270,8 +170,6 @@ const Transactions = () => {
                           courseId={t.course_id}
                           courseName={coursesMap[t.course_id]?.title ?? "Untitled"}
                           courseOwnerName={profilesMap[coursesMap[t.course_id]?.user_id ?? ""]?.full_name ?? ""}
-                          onRate={(sellerId: string) => openRatingDialog({ type: "transaction", id: t.id, ratedId: sellerId })}
-                          canRate={t.status === "completed" && t.buyer_id === user!.id && !ratedTransactionIds[t.id]}
                         />
                       ))}
                       {exchanges.map((ex) => (
@@ -282,8 +180,6 @@ const Transactions = () => {
                           coursesMap={coursesMap}
                           profilesMap={profilesMap}
                           onAction={handleExchangeAction}
-                          onRate={(ratedId: string) => openRatingDialog({ type: "exchange", id: ex.id, ratedId })}
-                          canRate={ex.status === "accepted" && !ratedExchangeIds[ex.id]}
                         />
                       ))}
                     </div>
@@ -307,8 +203,6 @@ const Transactions = () => {
                           courseId={t.course_id}
                           courseName={coursesMap[t.course_id]?.title ?? "Untitled"}
                           courseOwnerName={profilesMap[coursesMap[t.course_id]?.user_id ?? ""]?.full_name ?? ""}
-                          onRate={(sellerId: string) => openRatingDialog({ type: "transaction", id: t.id, ratedId: sellerId })}
-                          canRate={t.status === "completed" && !ratedTransactionIds[t.id]}
                         />
                       ))}
                     </div>
@@ -332,8 +226,6 @@ const Transactions = () => {
                           courseId={t.course_id}
                           courseName={coursesMap[t.course_id]?.title ?? "Untitled"}
                           courseOwnerName={profilesMap[coursesMap[t.course_id]?.user_id ?? ""]?.full_name ?? ""}
-                          onRate={() => {}}
-                          canRate={false}
                         />
                       ))}
                     </div>
@@ -357,8 +249,6 @@ const Transactions = () => {
                           coursesMap={coursesMap}
                           profilesMap={profilesMap}
                           onAction={handleExchangeAction}
-                          onRate={(ratedId: string) => openRatingDialog({ type: "exchange", id: ex.id, ratedId })}
-                          canRate={ex.status === "accepted" && !ratedExchangeIds[ex.id]}
                         />
                       ))}
                     </div>
@@ -369,45 +259,6 @@ const Transactions = () => {
           </Tabs>
         )}
       </div>
-
-
-      {/* Rating Dialog */}
-      <Dialog open={ratingDialogOpen} onOpenChange={setRatingDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Rate {ratingTarget?.ratedName ?? "User"}</DialogTitle>
-          </DialogHeader>
-          {!ratingTarget ? (
-            <div className="flex justify-center py-6"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
-          ) : (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>Score</Label>
-                <Select value={ratingScore} onValueChange={setRatingScore}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select score" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="5">5 - Excellent</SelectItem>
-                    <SelectItem value="4">4 - Good</SelectItem>
-                    <SelectItem value="3">3 - Average</SelectItem>
-                    <SelectItem value="2">2 - Poor</SelectItem>
-                    <SelectItem value="1">1 - Very poor</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Comment (optional)</Label>
-                <Textarea value={ratingComment} onChange={(e) => setRatingComment(e.target.value)} placeholder="Share feedback about the course or exchange..." />
-              </div>
-              <Button className="w-full" onClick={submitRating} disabled={ratingSubmitting}>
-                {ratingSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Submit Rating
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </AppLayout>
   );
 };
@@ -418,16 +269,12 @@ const TransactionRow = ({
   courseId,
   courseName,
   courseOwnerName,
-  onRate,
-  canRate,
 }: {
   t: Tables<"transactions">;
   userId: string;
   courseId: string;
   courseName: string;
   courseOwnerName: string;
-  onRate: (sellerId: string) => void;
-  canRate: boolean;
 }) => {
   const isBuyer = t.buyer_id === userId;
   return (
@@ -449,11 +296,6 @@ const TransactionRow = ({
         </p>
       </div>
       <div className="flex items-center gap-2">
-        {isBuyer && canRate && (
-          <Button size="sm" variant="outline" className="text-xs" onClick={() => onRate(t.seller_id)}>
-            Rate Seller
-          </Button>
-        )}
         <Badge className={isBuyer ? "" : "bg-success text-success-foreground"}>
           {isBuyer ? "-" : "+"}ETB {Number(t.amount).toFixed(2)}
         </Badge>
@@ -465,16 +307,12 @@ const TransactionRow = ({
 const ExchangeRow = ({
   ex, userId, coursesMap, onAction,
   profilesMap,
-  onRate,
-  canRate,
 }: {
   ex: Tables<"exchanges">;
   userId: string;
   coursesMap: Record<string, Tables<"courses">>;
   profilesMap: Record<string, Tables<"profiles">>;
   onAction: (id: string, action: "accepted" | "rejected", ex?: Tables<"exchanges">) => void;
-  onRate: (ratedId: string) => void;
-  canRate: boolean;
 }) => {
   const isOwner = ex.owner_id === userId;
   const requestedCourseRow = coursesMap[ex.requested_course_id];
@@ -483,7 +321,6 @@ const ExchangeRow = ({
   const offeredCourse = offeredCourseRow?.title ?? "Untitled";
   const requestedOwnerName = requestedCourseRow?.user_id ? profilesMap[requestedCourseRow.user_id]?.full_name : "";
   const offeredOwnerName = offeredCourseRow?.user_id ? profilesMap[offeredCourseRow.user_id]?.full_name : "";
-  const otherUserId = isOwner ? ex.requester_id : ex.owner_id;
 
   return (
     <div className="flex items-center justify-between rounded-lg border border-border p-4">
@@ -529,11 +366,6 @@ const ExchangeRow = ({
           </>
         ) : (
           <>
-            {ex.status === "accepted" && canRate && (
-              <Button size="sm" variant="outline" className="text-xs" onClick={() => onRate(otherUserId)}>
-                Rate User
-              </Button>
-            )}
             <Badge variant={ex.status === "accepted" ? "default" : ex.status === "rejected" ? "destructive" : "secondary"}>
               {ex.status}
             </Badge>
