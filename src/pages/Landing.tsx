@@ -53,22 +53,26 @@ const Landing = () => {
   const [myAvatarUrl, setMyAvatarUrl] = useState<string | null>(null);
   const [ownersMap, setOwnersMap] = useState<Record<string, Tables<"profiles">>>({});
   const [courseRatingsMap, setCourseRatingsMap] = useState<Record<string, { avg: number; count: number }>>({});
-  const [trustStats, setTrustStats] = useState<{ users: number | null; courses: number | null; exchanges: number | null }>(
-    { users: null, courses: null, exchanges: null },
+  const [trustStats, setTrustStats] = useState<{ users: number | null; courses: number | null; exchanges: number | null; sold: number | null; bought: number | null }>(
+    { users: null, courses: null, exchanges: null, sold: null, bought: null },
   );
 
   useEffect(() => {
     const fetchStats = async () => {
-      const [usersRes, coursesRes, exchangesRes] = await Promise.all([
+      const [usersRes, coursesRes, exchangesRes, soldRes, boughtRes] = await Promise.all([
         supabase.from("profiles").select("user_id", { count: "exact", head: true }),
         supabase.from("courses").select("id", { count: "exact", head: true }).eq("status", "active"),
         user ? supabase.from("exchanges").select("id", { count: "exact", head: true }) : Promise.resolve(null as any),
+        supabase.from("transactions").select("id", { count: "exact", head: true }).eq("status", "completed"),
+        user ? supabase.from("transactions").select("id", { count: "exact", head: true }).eq("status", "completed").eq("buyer_id", user.id) : Promise.resolve(null as any),
       ]);
 
       setTrustStats({
         users: usersRes.error ? null : usersRes.count ?? null,
         courses: coursesRes.error ? null : coursesRes.count ?? null,
         exchanges: !user || !exchangesRes || exchangesRes.error ? null : exchangesRes.count ?? null,
+        sold: soldRes.error ? null : soldRes.count ?? null,
+        bought: !user || !boughtRes || boughtRes.error ? null : boughtRes.count ?? null,
       });
     };
 
@@ -423,7 +427,7 @@ const Landing = () => {
               </p>
             </motion.div>
             <motion.div
-              className="mt-10 grid grid-cols-3 gap-6"
+              className="mt-10 grid grid-cols-5 gap-6"
               initial="hidden"
               whileInView="visible"
               viewport={{ once: true }}
@@ -434,6 +438,8 @@ const Landing = () => {
                 { label: "Active Users", value: trustStats.users },
                 { label: "Courses Shared", value: trustStats.courses },
                 { label: "Exchanges Made", value: trustStats.exchanges },
+                { label: "Courses Sold", value: trustStats.sold },
+                { label: "Courses Bought", value: trustStats.bought },
               ].map((stat) => (
                 <div key={stat.label}>
                   <p className="font-display text-3xl font-bold text-primary">
