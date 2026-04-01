@@ -14,6 +14,26 @@ const addDaysIso = (days: number) => {
   return d.toISOString();
 };
 
+async function getUserWithRetry(authSupabase: any, token: string, retries = 2): Promise<{ data?: any; error?: any }> {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const result = await authSupabase.auth.getUser(token);
+      if (result.data?.user || result.error?.message?.includes("invalid")) {
+        return result;
+      }
+      if (i < retries) await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+    } catch (err: any) {
+      if (i === retries) return { error: err };
+      if (err?.code === 'ENOTFOUND' || err?.code === 'ECONNREFUSED' || err?.message?.includes('fetch')) {
+        await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+      } else {
+        return { error: err };
+      }
+    }
+  }
+  return { error: { message: "Failed to verify user after retries" } };
+}
+
 export async function POST(req: Request) {
   try {
     const { txRef, transactionId } = (await req.json()) as { txRef?: string; transactionId?: string };
@@ -36,8 +56,9 @@ export async function POST(req: Request) {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    const { data: userRes, error: userErr } = await authSupabase.auth.getUser(token);
+    const { data: userRes, error: userErr } = await getUserWithRetry(authSupabase, token);
     if (userErr || !userRes?.user) {
+      console.error("[chapa/verify] User verification failed:", userErr);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

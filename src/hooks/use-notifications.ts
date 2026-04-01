@@ -1,62 +1,122 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
+import { useAuth } from "@/contexts/AuthContext";
 
 export type Notification = Tables<"notifications">;
 
 export function useNotifications() {
+  const { user, session, loading: authLoading } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  const fetchNotifications = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("notifications")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(50);
+  const fetchNotifications = useCallback(async (retryCount = 0) => {
+    if (!user || !session || authLoading) {
+      setNotifications([]);
+      setUnreadCount(0);
+      setLoading(false);
+      return;
+    }
 
-    if (!error && data) {
-      setNotifications(data);
-      setUnreadCount(data.filter((n) => !n.is_read).length);
+    try {
+      const { data, error } = await supabase
+        .from("notifications")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (!error && data) {
+        setNotifications(data);
+        setUnreadCount(data.filter((n) => !n.is_read).length);
+      } else if (error) {
+        // Only log if it's not a network error on retry
+        if (retryCount === 0) {
+          console.error("[useNotifications] fetch error:", error.message);
+        }
+        // Retry up to 2 times for network errors
+        if (retryCount < 2 && error.message?.includes("fetch")) {
+          setTimeout(() => fetchNotifications(retryCount + 1), 1000 * (retryCount + 1));
+          return;
+        }
+      }
+    } catch (err: any) {
+      // Handle auth errors gracefully
+      if (err?.message?.includes("refresh token") || err?.message?.includes("JWT")) {
+        console.warn("[useNotifications] Auth session invalid, skipping fetch");
+        setLoading(false);
+        return;
+      }
+      if (retryCount === 0) {
+        console.error("[useNotifications] unexpected error:", err);
+      }
+      if (retryCount < 2) {
+        setTimeout(() => fetchNotifications(retryCount + 1), 1000 * (retryCount + 1));
+        return;
+      }
     }
     setLoading(false);
-  }, []);
+  }, [user, session, authLoading]);
 
   const markAsRead = useCallback(async (id: string) => {
-    const { error } = await supabase
-      .from("notifications")
-      .update({ is_read: true })
-      .eq("id", id);
+    if (!user || !session) return;
+    try {
+      const { error } = await supabase
+        .from("notifications")
+        .update({ is_read: true })
+        .eq("id", id)
+        .eq("user_id", user.id);
 
-    if (!error) {
-      setNotifications((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
-      );
-      setUnreadCount((c) => Math.max(0, c - 1));
+      if (!error) {
+        setNotifications((prev) =>
+          prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
+        );
+        setUnreadCount((c) => Math.max(0, c - 1));
+      }
+    } catch (err) {
+      console.warn("[useNotifications] markAsRead failed:", err);
     }
-  }, []);
+  }, [user, session]);
 
   const markAllAsRead = useCallback(async () => {
-    const { error } = await supabase
-      .from("notifications")
-      .update({ is_read: true })
-      .eq("is_read", false);
+    if (!user || !session) return;
+    try {
+      const { error } = await supabase
+        .from("notifications")
+        .update({ is_read: true })
+        .eq("is_read", false)
+        .eq("user_id", user.id);
 
-    if (!error) {
-      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
-      setUnreadCount(0);
+      if (!error) {
+        setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+        setUnreadCount(0);
+      }
+    } catch (err) {
+      console.warn("[useNotifications] markAllAsRead failed:", err);
     }
-  }, []);
+  }, [user, session]);
 
   useEffect(() => {
+    // Wait for auth to be ready before fetching
+    if (authLoading || !session) return;
+    
     fetchNotifications();
 
+    if (!user) return;
+
+    // Unsubscribe any existing channel first
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current).catch(() => {});
+      channelRef.current = null;
+    }
+
     const channel = supabase
-      .channel("notifications")
+      .channel(`notifications:${user.id}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "notifications" },
+        { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
         (payload) => {
           const newNotif = payload.new as Notification;
           setNotifications((prev) => [newNotif, ...prev]);
@@ -65,12 +125,22 @@ export function useNotifications() {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          channelRef.current = channel;
+        }
+      });
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current).catch(() => {});
+        channelRef.current = null;
+      } else {
+        // If channel never reached subscribed state, remove it anyway
+        supabase.removeChannel(channel).catch(() => {});
+      }
     };
-  }, [fetchNotifications]);
+  }, [fetchNotifications, user, session, authLoading]);
 
   return {
     notifications,
