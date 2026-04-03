@@ -247,14 +247,7 @@ const AdminDashboard = () => {
         .from("platform_settings")
         .update({ value: commissionRate, updated_at: now, updated_by: uid })
         .eq("key", "commission_rate");
-      const { error: e2 } = await supabase
-        .from("platform_settings")
-        .upsert({ key: "payment_method", value: paymentMethod, updated_at: now, updated_by: uid }, { onConflict: "key" });
-      const { error: e3 } = await supabase
-        .from("platform_settings")
-        .update({ value: paymentAccount, updated_at: now, updated_by: uid })
-        .eq("key", "payment_account");
-      if (e1 || e2 || e3) throw e1 || e2 || e3;
+      if (e1) throw e1;
       toast({ title: "Settings saved!" });
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -398,7 +391,7 @@ const AdminDashboard = () => {
                     Create Admin
                   </Button>
                 </div>
-                <div className="grid gap-6 md:grid-cols-3">
+                <div className="grid gap-6 md:grid-cols-1">
                   <div className="space-y-2">
                     <Label htmlFor="rate" className="flex items-center gap-2">
                       <Percent className="h-4 w-4" /> Commission Rate (%)
@@ -413,40 +406,6 @@ const AdminDashboard = () => {
                       onChange={(e) => setCommissionRate(e.target.value)}
                     />
                     <p className="text-xs text-muted-foreground">Applied to both buyer and seller on each transaction</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="flex items-center gap-2">
-                      <Wallet className="h-4 w-4" /> Platform Settlement Method
-                    </Label>
-                    <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select method" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="telebirr">Telebirr</SelectItem>
-                        <SelectItem value="ebirr">eBirr</SelectItem>
-                        <SelectItem value="paypal">PayPal</SelectItem>
-                        <SelectItem value="bank">Direct Bank Transfer</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">Platform account for commission/settlement tracking. Buyers still pay via Chapa.</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="account" className="flex items-center gap-2">
-                      <DollarSign className="h-4 w-4" /> Platform Settlement Account
-                    </Label>
-                    <Input
-                      id="account"
-                      placeholder={
-                        paymentMethod === "telebirr" ? "Phone number (09...)" :
-                        paymentMethod === "ebirr" ? "eBirr phone number" :
-                        paymentMethod === "paypal" ? "PayPal email address" :
-                        "Bank account number"
-                      }
-                      value={paymentAccount}
-                      onChange={(e) => setPaymentAccount(e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">Account where platform commission/settlement is tracked. Not used for Chapa payments.</p>
                   </div>
                 </div>
                 <Button onClick={handleSaveSettings} disabled={saving} className="gap-2">

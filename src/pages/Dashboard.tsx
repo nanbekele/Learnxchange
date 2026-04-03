@@ -71,8 +71,8 @@ const Dashboard = () => {
         courses?.forEach((c) => { coursesMap[c.id] = c; });
       }
       if (uniqueBuyerIds.length > 0) {
-        const { data: buyers } = await supabase.from("profiles").select("id, full_name, email").in("id", uniqueBuyerIds);
-        buyers?.forEach((b) => { buyersMap[b.id] = b; });
+        const { data: buyers } = await supabase.from("profiles").select("user_id, full_name, email").in("user_id", uniqueBuyerIds);
+        buyers?.forEach((b) => { buyersMap[b.user_id] = b; });
       }
 
       setBought((boughtRes.data ?? []).map((t) => ({ ...t, course: coursesMap[t.course_id] })));

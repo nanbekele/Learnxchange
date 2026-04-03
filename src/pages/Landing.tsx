@@ -29,6 +29,8 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAdmin } from "@/hooks/use-admin";
+import { HelpCircle } from "lucide-react";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 30 },
@@ -49,6 +51,7 @@ const formatCompact = (n: number) => {
 const Landing = () => {
   const router = useRouter();
   const { user, signOut } = useAuth();
+  const { isAdmin } = useAdmin();
   const [courses, setCourses] = useState<Tables<"courses">[]>([]);
   const [myAvatarUrl, setMyAvatarUrl] = useState<string | null>(null);
   const [ownersMap, setOwnersMap] = useState<Record<string, Tables<"profiles">>>({});
@@ -174,6 +177,11 @@ const Landing = () => {
             <Button variant="ghost" asChild>
               <Link href="/contact">Contact</Link>
             </Button>
+            {!isAdmin && (
+              <Button variant="ghost" asChild>
+                <Link href="/how-to-use">How to Use</Link>
+              </Button>
+            )}
             <ThemeToggle />
             {user ? (
               <DropdownMenu>
