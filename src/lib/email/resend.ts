@@ -1,16 +1,29 @@
-import { Resend } from "resend";
+import nodemailer from "nodemailer";
+import type React from "react";
 
-const getResendApiKey = () => {
-  const key = process.env.RESEND_API_KEY;
-  if (!key) {
-    throw new Error("Missing RESEND_API_KEY environment variable");
-  }
-  return key;
+const getRequiredEnv = (key: string) => {
+  const v = process.env[key];
+  if (!v) throw new Error(`Missing environment variable: ${key}`);
+  return v;
 };
 
-export const resend = new Resend(getResendApiKey());
+const SMTP_HOST = process.env.SMTP_HOST || "smtp.gmail.com";
+const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
+const SMTP_SECURE = String(process.env.SMTP_SECURE ?? "true").toLowerCase() === "true";
+const SMTP_USER = getRequiredEnv("SMTP_USER");
+const SMTP_PASS = getRequiredEnv("SMTP_PASS");
 
-export const FROM_EMAIL = process.env.FROM_EMAIL || "onboarding@resend.dev";
+export const FROM_EMAIL = process.env.FROM_EMAIL || SMTP_USER;
+
+const transporter = nodemailer.createTransport({
+  host: SMTP_HOST,
+  port: SMTP_PORT,
+  secure: SMTP_SECURE,
+  auth: {
+    user: SMTP_USER,
+    pass: SMTP_PASS,
+  },
+});
 
 export interface EmailOptions {
   to: string | string[];
@@ -26,24 +39,26 @@ export interface EmailOptions {
 
 export const sendEmail = async (options: EmailOptions) => {
   try {
-    const { data, error } = await resend.emails.send({
+    if (options.react) {
+      throw new Error("React email templates are not supported with SMTP. Provide html or text.");
+    }
+
+    const to = Array.isArray(options.to) ? options.to.join(",") : options.to;
+
+    const info = await transporter.sendMail({
       from: FROM_EMAIL,
-      to: options.to,
+      to,
       subject: options.subject,
       html: options.html,
       text: options.text,
-      react: options.react,
-      attachments: options.attachments,
+      attachments: options.attachments?.map((a) => ({
+        filename: a.filename,
+        content: a.content,
+      })),
     });
 
-    if (error) {
-      console.error("Resend email error:", error);
-      throw new Error(error.message);
-    }
-
-    return { success: true, id: data?.id };
+    return { success: true, id: info.messageId };
   } catch (err: any) {
-    console.error("Failed to send email:", err);
     throw err;
   }
 };

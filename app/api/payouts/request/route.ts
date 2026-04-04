@@ -43,7 +43,15 @@ export async function POST(req: Request) {
       .eq("is_default", true)
       .single();
 
-    const hasPaymentMethod = !!paymentMethod;
+    // Validate that only Telebirr is accepted for payouts
+    if (paymentMethod && paymentMethod.method !== "telebirr") {
+      return NextResponse.json(
+        { error: "Only Telebirr is supported for seller payouts. Please update your payout method in your profile." },
+        { status: 400 }
+      );
+    }
+
+    const hasPaymentMethod = !!paymentMethod && paymentMethod.method === "telebirr";
 
     // Calculate available earnings (pending and past available_at date)
     const { data: availableEarnings, error: earningsError } = await adminSupabase
@@ -113,8 +121,8 @@ export async function POST(req: Request) {
     }
 
     const message = hasPaymentMethod
-      ? `Withdrawal request created for ETB ${totalAmount.toFixed(2)}. Will be processed automatically.`
-      : `Withdrawal request created for ETB ${totalAmount.toFixed(2)}. Admin will process manually.`;
+      ? `Withdrawal request created for ETB ${totalAmount.toFixed(2)}. Will be processed to your Telebirr account.`
+      : `Withdrawal request created for ETB ${totalAmount.toFixed(2)}. Please add your Telebirr number in your profile to receive payouts.`;
 
     // Send notification to seller
     await adminSupabase.from("notifications").insert({

@@ -167,7 +167,7 @@ const Dashboard = () => {
                   {withdrawing ? "Requesting…" : "Request Withdrawal"}
                 </Button>
                 <Button variant="outline" asChild>
-                  <Link href="/profile">Update payout method</Link>
+                  <Link href="/profile">Add Telebirr number</Link>
                 </Button>
               </div>
             </CardContent>

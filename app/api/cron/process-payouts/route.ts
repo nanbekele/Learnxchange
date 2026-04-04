@@ -67,6 +67,29 @@ export async function POST(req: Request) {
     for (const row of requests ?? []) {
       processed += 1;
 
+      // Skip non-Telebirr payouts
+      if (row.method && row.method !== "telebirr") {
+        await adminSupabase
+          .from("payout_requests")
+          .update({
+            admin_note: "Only Telebirr is supported for payouts. Please update your payment method.",
+            updated_at: nowIso,
+          })
+          .eq("id", row.id)
+          .eq("status", "requested");
+
+        await adminSupabase.from("notifications").insert({
+          user_id: row.seller_id,
+          title: "Payout method not supported",
+          body: `Only Telebirr is supported for payouts. Please update your payout method in your profile.`,
+          type: "warning",
+          link: "/profile",
+        });
+
+        results.push({ id: row.id, ok: false, message: "Only Telebirr supported" });
+        continue;
+      }
+
       const phone = asPhone(row);
       const amount = Number((row as any).amount ?? 0);
 
@@ -98,7 +121,7 @@ export async function POST(req: Request) {
           await adminSupabase.from("notifications").insert({
             user_id: row.seller_id,
             title: "Payout completed",
-            body: `ETB ${amount.toFixed(2)} has been sent to your ${row.method || "payment method"}.`,
+            body: `ETB ${amount.toFixed(2)} has been sent to your Telebirr account.`,
             type: "success",
             link: "/dashboard",
           });
@@ -122,7 +145,7 @@ export async function POST(req: Request) {
         await adminSupabase.from("notifications").insert({
           user_id: row.seller_id,
           title: "Payout failed",
-          body: `We couldn't process your payout of ETB ${amount.toFixed(2)}. Please update your payment method and try again.`,
+          body: `We couldn't process your payout of ETB ${amount.toFixed(2)}. Please ensure your Telebirr number is correct and try again.`,
           type: "error",
           link: "/profile",
         });

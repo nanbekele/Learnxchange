@@ -21,9 +21,6 @@ interface PaymentMethod {
 
 const METHODS = [
   { value: "telebirr", label: "Telebirr" },
-  { value: "ebirr", label: "eBirr" },
-  { value: "paypal", label: "PayPal" },
-  { value: "bank", label: "Direct Bank Transfer" },
 ];
 
 const Profile = () => {
@@ -181,13 +178,8 @@ const Profile = () => {
   };
 
   const getPlaceholder = (method: string) => {
-    switch (method) {
-      case "telebirr": return "Phone number (09...)";
-      case "ebirr": return "eBirr phone number";
-      case "paypal": return "PayPal email address";
-      case "bank": return "Bank account number";
-      default: return "Account number";
-    }
+    if (method === "telebirr") return "Phone number (09...)";
+    return "Phone number (09...)";
   };
 
   return (
@@ -266,7 +258,7 @@ const Profile = () => {
               </Button>
             </div>
             <p className="text-sm text-muted-foreground">
-              Add a payout method to receive withdrawals as a seller. Required only if you sell courses.
+              Add your Telebirr phone number to receive withdrawals as a seller. Telebirr is the only supported payout method.
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
