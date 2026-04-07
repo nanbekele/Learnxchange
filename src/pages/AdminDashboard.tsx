@@ -34,7 +34,7 @@ const AdminDashboard = () => {
   const { toast } = useToast();
   const router = useRouter();
 
-  const [stats, setStats] = useState({ totalUsers: 0, totalCourses: 0, totalTransactions: 0, totalCommissions: 0 });
+  const [stats, setStats] = useState({ totalUsers: 0, totalCourses: 0, totalTransactions: 0, totalCommissions: 0, platformBalance: 0 });
   const [commissionRate, setCommissionRate] = useState("2");
   const [paymentMethod, setPaymentMethod] = useState("telebirr");
   const [paymentAccount, setPaymentAccount] = useState("");
@@ -89,7 +89,7 @@ const AdminDashboard = () => {
 
   const fetchAll = async () => {
     setLoading(true);
-    const [usersRes, coursesRes, txRes, commRes, payoutRes, settingsRes, msgRes] = await Promise.all([
+    const [usersRes, coursesRes, txRes, commRes, payoutRes, settingsRes, msgRes, balanceRes] = await Promise.all([
       supabase.from("profiles").select("*").order("created_at", { ascending: false }),
       supabase.from("courses").select("*").order("created_at", { ascending: false }),
       supabase.from("transactions").select("*").order("created_at", { ascending: false }),
@@ -97,6 +97,7 @@ const AdminDashboard = () => {
       supabase.from("payout_requests").select("*").order("requested_at", { ascending: false }),
       supabase.from("platform_settings").select("*"),
       supabase.from("contact_messages").select("*").order("created_at", { ascending: false }),
+      supabase.from("platform_balance").select("balance").order("last_updated", { ascending: false }).limit(1).maybeSingle(),
     ]);
 
     setUsers(usersRes.data ?? []);
@@ -107,11 +108,13 @@ const AdminDashboard = () => {
     setMessages(msgRes.data ?? []);
 
     const totalComm = (commRes.data ?? []).reduce((s: number, c: any) => s + Number(c.amount), 0);
+    const platformBalance = balanceRes.error ? 0 : Number(balanceRes.data?.balance ?? 0);
     setStats({
       totalUsers: (usersRes.data ?? []).length,
       totalCourses: (coursesRes.data ?? []).length,
       totalTransactions: (txRes.data ?? []).length,
       totalCommissions: totalComm,
+      platformBalance,
     });
 
     const settings = settingsRes.data ?? [];
@@ -547,12 +550,13 @@ const AdminDashboard = () => {
         </div>
 
         {/* Stats */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           {[
             { label: "Total Users", value: stats.totalUsers, icon: Users, color: "text-primary" },
             { label: "Total Courses", value: stats.totalCourses, icon: BookOpen, color: "text-accent" },
             { label: "Total Transactions", value: stats.totalTransactions, icon: ShoppingCart, color: "text-warning" },
             { label: "Commission Earned", value: `ETB ${stats.totalCommissions.toFixed(2)}`, icon: DollarSign, color: "text-success" },
+            { label: "Platform Balance", value: `ETB ${stats.platformBalance.toFixed(2)}`, icon: Wallet, color: stats.platformBalance > 0 ? "text-primary" : "text-destructive" },
           ].map((stat) => (
             <Card key={stat.label}>
               <CardContent className="flex items-center gap-4 p-6">
@@ -1068,14 +1072,9 @@ const AdminDashboard = () => {
                               <Badge variant={status === "paid" ? "default" : isManual ? "destructive" : "secondary"}>
                                 {isManual ? "manual" : status}
                               </Badge>
-                              {/* Only show button for sellers without payment method */}
-                              {!p.method && !p.account_number && (
-                                <Button
-                                  size="sm"
-                                  onClick={() => openPayoutDialog(p)}
-                                  disabled={status === "paid"}
-                                >
-                                  Pay Seller
+                              {needsAction && (
+                                <Button size="sm" onClick={() => openPayoutDialog(p)}>
+                                  {isManual ? "Review" : "Pay"}
                                 </Button>
                               )}
                             </div>
@@ -1090,16 +1089,16 @@ const AdminDashboard = () => {
           </TabsContent>
         </Tabs>
 
-        {/* Payout Confirmation Dialog */}
+        {/* Payout Action Dialog */}
         <Dialog open={payoutDialogOpen} onOpenChange={setPayoutDialogOpen}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Mail className="h-5 w-5" /> 
-                Contact Seller for Payment Details
+                Payout Request
               </DialogTitle>
               <DialogDescription>
-                This seller has not set up a payment method. Contact them to request payment details.
+                Review the payout details, then mark it as paid after you complete the transfer.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
@@ -1116,23 +1115,27 @@ const AdminDashboard = () => {
                   <span className="text-muted-foreground">Amount:</span>{" "}
                   <span className="font-medium text-foreground">ETB {Number(selectedPayout?.amount ?? 0).toFixed(2)}</span>
                 </p>
-                {selectedPayout?.method && (
-                  <p className="text-sm">
-                    <span className="text-muted-foreground">Payment Method:</span>{" "}
-                    <span className="font-medium text-foreground">{selectedPayout.method}</span>
+                <p className="text-sm">
+                  <span className="text-muted-foreground">Payment Method:</span>{" "}
+                  <span className="font-medium text-foreground">{selectedPayout?.method || "Not set"}</span>
+                </p>
+                <p className="text-sm">
+                  <span className="text-muted-foreground">Account:</span>{" "}
+                  <span className="font-medium text-foreground">{selectedPayout?.account_number || "Not set"}</span>
+                </p>
+                {!selectedPayout?.account_number ? (
+                  <p className="text-xs text-warning mt-1">
+                    Seller has no Telebirr number saved. You can contact them to collect payment details.
                   </p>
-                )}
-                {selectedPayout?.account_number && (
-                  <p className="text-sm">
-                    <span className="text-muted-foreground">Account:</span>{" "}
-                    <span className="font-medium text-foreground">{selectedPayout.account_number}</span>
-                  </p>
-                )}
+                ) : null}
               </div>
             </div>
             <DialogFooter className="gap-2">
               <Button variant="outline" onClick={() => setPayoutDialogOpen(false)}>
                 Close
+              </Button>
+              <Button onClick={confirmMarkPayoutPaid} disabled={markingPaid || !selectedPayout}>
+                {markingPaid ? "Marking…" : "Mark as Paid"}
               </Button>
               {selectedSeller?.email && (
                 <a 

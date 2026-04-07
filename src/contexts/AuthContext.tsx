@@ -39,14 +39,36 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       );
   };
 
+  const recordLogin = async (userId: string) => {
+    try {
+      // Update last_login in profiles
+      await supabase
+        .from("profiles")
+        .update({ last_login: new Date().toISOString() })
+        .eq("user_id", userId);
+      
+      // Record session - silently fail if not allowed
+      await supabase.from("user_sessions").insert({
+        user_id: userId,
+        is_active: true,
+      });
+    } catch {
+      // Silently fail - login tracking is not critical
+    }
+  };
+
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
 
       if (session?.user) {
         ensureProfile(session.user).catch(() => {});
+        // Record login on initial sign in
+        if (event === "SIGNED_IN") {
+          recordLogin(session.user.id).catch(() => {});
+        }
       }
     });
 

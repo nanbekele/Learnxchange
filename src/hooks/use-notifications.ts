@@ -32,10 +32,7 @@ export function useNotifications() {
         setNotifications(data);
         setUnreadCount(data.filter((n) => !n.is_read).length);
       } else if (error) {
-        // Only log if it's not a network error on retry
-        if (retryCount === 0) {
-          console.error("[useNotifications] fetch error:", error.message);
-        }
+        // Silently handle errors - don't spam console
         // Retry up to 2 times for network errors
         if (retryCount < 2 && error.message?.includes("fetch")) {
           setTimeout(() => fetchNotifications(retryCount + 1), 1000 * (retryCount + 1));
@@ -49,9 +46,7 @@ export function useNotifications() {
         setLoading(false);
         return;
       }
-      if (retryCount === 0) {
-        console.error("[useNotifications] unexpected error:", err);
-      }
+      // Silently handle other errors
       if (retryCount < 2) {
         setTimeout(() => fetchNotifications(retryCount + 1), 1000 * (retryCount + 1));
         return;

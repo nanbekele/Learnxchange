@@ -89,9 +89,28 @@ const Dashboard = () => {
     if (!user) return;
     setWithdrawing(true);
     try {
-      const { data, error } = await supabase.rpc("create_payout_request");
-      if (error) throw error;
-      toast({ title: "Withdrawal requested" });
+      const { data: sessionRes } = await supabase.auth.getSession();
+      let token = sessionRes.session?.access_token;
+      if (!token) {
+        const { data: refreshed } = await supabase.auth.refreshSession();
+        token = refreshed.session?.access_token;
+      }
+      if (!token) throw new Error("Not authenticated");
+
+      const res = await fetch("/api/payouts/request", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(String(json?.error ?? "Failed to request withdrawal"));
+      }
+
+      toast({ title: "Withdrawal requested", description: json?.message });
       // Refresh balances
       const { data: earnings } = await supabase
         .from("seller_earnings")
@@ -106,7 +125,6 @@ const Dashboard = () => {
         .reduce((s, e) => s + Number(e.amount ?? 0), 0);
       setEarningsPending(pending);
       setEarningsAvailable(available);
-      void data;
     } catch (err: any) {
       toast({ title: "Withdrawal failed", description: err.message, variant: "destructive" });
     } finally {

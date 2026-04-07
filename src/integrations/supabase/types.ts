@@ -299,6 +299,7 @@ export type Database = {
           email: string
           full_name: string
           id: string
+          last_login: string | null
           reputation_score: number
           updated_at: string
           user_id: string
@@ -309,6 +310,7 @@ export type Database = {
           email?: string
           full_name?: string
           id?: string
+          last_login?: string | null
           reputation_score?: number
           updated_at?: string
           user_id: string
@@ -319,6 +321,7 @@ export type Database = {
           email?: string
           full_name?: string
           id?: string
+          last_login?: string | null
           reputation_score?: number
           updated_at?: string
           user_id?: string
@@ -412,6 +415,44 @@ export type Database = {
             referencedRelation: "users"
             referencedColumns: ["id"]
           }
+        ]
+      }
+      platform_balance: {
+        Row: {
+          balance: number
+          created_at: string
+          currency: string
+          id: string
+          last_updated: string
+          notes: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          balance?: number
+          created_at?: string
+          currency?: string
+          id?: string
+          last_updated?: string
+          notes?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          balance?: number
+          created_at?: string
+          currency?: string
+          id?: string
+          last_updated?: string
+          notes?: string | null
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "platform_balance_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
         ]
       }
       payout_requests: {
@@ -616,6 +657,44 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      user_sessions: {
+        Row: {
+          id: string
+          user_id: string
+          ip_address: string | null
+          user_agent: string | null
+          logged_in_at: string
+          logged_out_at: string | null
+          is_active: boolean
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          ip_address?: string | null
+          user_agent?: string | null
+          logged_in_at?: string
+          logged_out_at?: string | null
+          is_active?: boolean
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          ip_address?: string | null
+          user_agent?: string | null
+          logged_in_at?: string
+          logged_out_at?: string | null
+          is_active?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_sessions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
