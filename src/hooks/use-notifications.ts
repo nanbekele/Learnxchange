@@ -33,6 +33,9 @@ export function useNotifications() {
         setUnreadCount(data.filter((n) => !n.is_read).length);
       } else if (error) {
         // Silently handle errors - don't spam console
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("[useNotifications] fetch error:", error.message);
+        }
         // Retry up to 2 times for network errors
         if (retryCount < 2 && error.message?.includes("fetch")) {
           setTimeout(() => fetchNotifications(retryCount + 1), 1000 * (retryCount + 1));
@@ -103,7 +106,7 @@ export function useNotifications() {
 
     // Unsubscribe any existing channel first
     if (channelRef.current) {
-      supabase.removeChannel(channelRef.current).catch(() => {});
+      channelRef.current.unsubscribe().catch(() => {});
       channelRef.current = null;
     }
 
@@ -127,12 +130,11 @@ export function useNotifications() {
       });
 
     return () => {
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current).catch(() => {});
+      // During dev fast-refresh, the socket may be in "connecting" state.
+      // Using unsubscribe is safer than removeChannel and avoids noisy warnings.
+      channel.unsubscribe().catch(() => {});
+      if (channelRef.current === channel) {
         channelRef.current = null;
-      } else {
-        // If channel never reached subscribed state, remove it anyway
-        supabase.removeChannel(channel).catch(() => {});
       }
     };
   }, [fetchNotifications, user, session, authLoading]);
