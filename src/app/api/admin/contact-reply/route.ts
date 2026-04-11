@@ -31,10 +31,12 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const isSupabaseNetworkError = (err: any) => {
   const code = String(err?.code ?? "");
   const msg = String(err?.message ?? "");
+  const name = String(err?.name ?? "");
   return (
     code === "UND_ERR_CONNECT_TIMEOUT" ||
     code === "ENOTFOUND" ||
     code === "ECONNREFUSED" ||
+    name === "AuthRetryableFetchError" ||
     msg.toLowerCase().includes("fetch failed") ||
     msg.toLowerCase().includes("connect timeout")
   );
@@ -63,6 +65,8 @@ export async function POST(req: Request) {
     if (!token) {
       return NextResponse.json({ error: "Unauthorized - no token" }, { status: 401 });
     }
+
+    console.log("[contact-reply] auth header present:", !!authHeader, "token length:", token.length);
 
     let body: { messageId?: string; replyText?: string };
     try {
@@ -94,6 +98,7 @@ export async function POST(req: Request) {
       userRes = r.data;
       userErr = r.error;
     } catch (err: any) {
+      console.error("[contact-reply] auth.getUser exception:", err?.message ?? err);
       if (isSupabaseNetworkError(err)) {
         return NextResponse.json(
           { error: "Supabase is unreachable. Please try again.", details: err?.message ?? String(err) },
@@ -107,7 +112,31 @@ export async function POST(req: Request) {
     }
 
     if (userErr || !userRes?.user) {
-      return NextResponse.json({ error: "Unauthorized - invalid token" }, { status: 401 });
+      console.error("[contact-reply] auth.getUser failed:", {
+        message: userErr?.message,
+        status: userErr?.status,
+        name: userErr?.name,
+      });
+
+      // Supabase can fail to validate sessions due to transient network issues.
+      // Return 503 so the UI can retry and we don't confuse it with an auth problem.
+      if (isSupabaseNetworkError(userErr)) {
+        return NextResponse.json(
+          {
+            error: "Supabase is unreachable. Please try again.",
+            details: userErr?.message ?? "fetch failed",
+          },
+          { status: 503 },
+        );
+      }
+
+      return NextResponse.json(
+        {
+          error: "Unauthorized - invalid token",
+          details: userErr?.message ?? "Unknown auth error",
+        },
+        { status: 401 },
+      );
     }
 
     const adminSupabase = createClient<Database>(supabaseUrl, supabaseServiceRoleKey, {
