@@ -114,17 +114,39 @@ const Transactions = () => {
       toast({ title: action === "accepted" ? "Exchange accepted!" : "Exchange rejected" });
       const exchange = ex || exchanges.find((e) => e.id === exchangeId);
       if (exchange) {
-        const requestedCourse = coursesMap[exchange.requested_course_id]?.title ?? "course";
-        const offeredCourse = coursesMap[exchange.offered_course_id]?.title ?? "course";
+        const requestedCourse = coursesMap[exchange.requested_course_id];
+        const offeredCourse = coursesMap[exchange.offered_course_id];
+        const requestedCourseTitle = requestedCourse?.title ?? "course";
+        const offeredCourseTitle = offeredCourse?.title ?? "course";
+        
+        // In-app notification
         await supabase.from("notifications").insert({
           user_id: exchange.requester_id,
           title: action === "accepted" ? "Exchange accepted" : "Exchange rejected",
           body: action === "accepted" 
-            ? `Your offer to exchange "${offeredCourse}" for "${requestedCourse}" was accepted.`
-            : `Your offer to exchange "${offeredCourse}" for "${requestedCourse}" was rejected.`,
+            ? `Your offer to exchange "${offeredCourseTitle}" for "${requestedCourseTitle}" was accepted.`
+            : `Your offer to exchange "${offeredCourseTitle}" for "${requestedCourseTitle}" was rejected.`,
           type: action === "accepted" ? "success" : "warning",
           link: "/transactions",
         });
+
+        // Email notification via API (non-blocking)
+        try {
+          await fetch("/api/exchanges/notify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              exchangeId,
+              requestedCourseId: exchange.requested_course_id,
+              offeredCourseId: exchange.offered_course_id,
+              requesterId: exchange.requester_id,
+              ownerId: user?.id,
+              action,
+            }),
+          });
+        } catch (notifyErr) {
+          console.error("Failed to send exchange email notification:", notifyErr);
+        }
       }
       fetchData();
     }

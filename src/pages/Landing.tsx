@@ -61,9 +61,22 @@ const Landing = () => {
   );
 
   useEffect(() => {
+    // Prefetch common routes to reduce dev-mode navigation delays.
+    // (Next.js dev may still compile on first visit, but this helps when possible.)
+    const routes = ["/courses", "/login", "/register", "/dashboard", "/notifications", "/profile", "/admin"];
+    routes.forEach((r) => {
+      try {
+        router.prefetch(r);
+      } catch {
+        // ignore
+      }
+    });
+  }, [router]);
+
+  useEffect(() => {
     const fetchStats = async () => {
       // Use public function that returns stats without requiring auth
-      const { data, error } = await supabase.rpc("get_platform_stats");
+      const { data, error } = await supabase.rpc("get_platform_stats" as any);
 
       if (error) {
         console.error("Error fetching platform stats:", error);

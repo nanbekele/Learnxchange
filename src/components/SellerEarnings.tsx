@@ -33,11 +33,6 @@ export default function SellerEarnings() {
     paid: 0,
   });
 
-  useEffect(() => {
-    if (!user) return;
-    fetchEarnings();
-  }, [user]);
-
   const fetchEarnings = async () => {
     setLoading(true);
     try {
@@ -90,6 +85,11 @@ export default function SellerEarnings() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!user) return;
+    fetchEarnings();
+  }, [user]);
 
   const handleRequestPayout = async () => {
     if (!user) return;

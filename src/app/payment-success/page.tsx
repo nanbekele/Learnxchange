@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
@@ -20,7 +20,7 @@ interface TransactionDetails {
   };
 }
 
-export default function PaymentSuccessPage() {
+function PaymentSuccessContent() {
   const params = useSearchParams();
   const router = useRouter();
   const { user, loading } = useAuth();
@@ -36,25 +36,23 @@ export default function PaymentSuccessPage() {
       if (loading) return;
 
       if (!txRef || !transactionId) {
+        // Any other status is terminal for this UI.
         setState("failed");
         return;
       }
 
       const { data: sessionRes } = await supabase.auth.getSession();
       const token = sessionRes.session?.access_token;
-      if (!token) {
-        // Session missing (or expired). Don't immediately redirect; show failed state.
-        setState("failed");
-        return;
-      }
 
       for (let attempt = 0; attempt < 8; attempt++) {
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+        };
+        if (token) headers.Authorization = `Bearer ${token}`;
+
         const res = await fetch("/api/chapa/verify", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
+          headers,
           body: JSON.stringify({ txRef, transactionId }),
         });
 
@@ -75,6 +73,23 @@ export default function PaymentSuccessPage() {
         if (res.status === 202) {
           await new Promise((r) => setTimeout(r, 2000));
           continue;
+        }
+
+        try {
+          const raw = await res.text();
+          let body: any = null;
+          try {
+            body = raw ? JSON.parse(raw) : null;
+          } catch {
+            body = null;
+          }
+          console.error("Payment verification failed:", {
+            status: res.status,
+            body,
+            raw,
+          });
+        } catch {
+          // ignore
         }
 
         setState("failed");
@@ -249,5 +264,26 @@ export default function PaymentSuccessPage() {
         </>
       )}
     </div>
+  );
+}
+
+export default function PaymentSuccessPage() {
+  return (
+    <Suspense fallback={
+      <div className="container mx-auto max-w-xl py-16">
+        <Card>
+          <CardHeader>
+            <CardTitle>Payment Status</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="flex items-center gap-3 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" /> Loading...
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    }>
+      <PaymentSuccessContent />
+    </Suspense>
   );
 }

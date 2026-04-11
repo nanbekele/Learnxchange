@@ -126,6 +126,11 @@ export function useNotifications() {
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           channelRef.current = channel;
+          console.log('[useNotifications] Realtime subscribed');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('[useNotifications] Realtime subscription error');
+        } else if (status === 'TIMED_OUT') {
+          console.error('[useNotifications] Realtime subscription timed out');
         }
       });
 

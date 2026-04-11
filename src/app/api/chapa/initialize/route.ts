@@ -117,13 +117,20 @@ export async function POST(req: Request) {
       .single();
 
     const rate = rateRow?.value ? Number.parseFloat(rateRow.value) : 2;
-    const totalAmount = Number(course.price ?? 0);
-    if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
+    const coursePrice = Number(course.price ?? 0);
+    if (!Number.isFinite(coursePrice) || coursePrice <= 0) {
       return NextResponse.json({ error: "Invalid course price" }, { status: 400 });
     }
 
-    const commissionAmount = +(totalAmount * (rate / 100)).toFixed(2);
-    const sellerAmount = +(totalAmount - commissionAmount).toFixed(2);
+    // Commission from both buyer and seller
+    const sellerCommission = +(coursePrice * (rate / 100)).toFixed(2);
+    const buyerCommission = +(coursePrice * (rate / 100)).toFixed(2);
+    const totalCommission = +(sellerCommission + buyerCommission).toFixed(2);
+    
+    // Buyer pays course price + their commission
+    const totalAmount = +(coursePrice + buyerCommission).toFixed(2);
+    // Seller receives course price minus their commission
+    const sellerAmount = +(coursePrice - sellerCommission).toFixed(2);
 
     const txRef = `learnxchange_${Date.now()}_${course.id.slice(0, 8)}`;
 
@@ -134,7 +141,8 @@ export async function POST(req: Request) {
         buyer_id: user.id,
         seller_id: course.user_id,
         amount: totalAmount,
-        commission_amount: commissionAmount,
+        commission_amount: sellerCommission,
+        buyer_commission_amount: buyerCommission,
         seller_amount: sellerAmount,
         status: "pending",
       })
@@ -154,6 +162,17 @@ export async function POST(req: Request) {
     const customizationDescription =
       sanitizeChapaText(`Purchase ${course.title}`) || sanitizeChapaText(course.title) || "Course purchase";
 
+    const { data: prof } = await adminSupabase
+      .from("profiles")
+      .select("full_name")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    const rawName = String(prof?.full_name ?? user.user_metadata?.full_name ?? "").trim();
+    const derivedName = rawName || email.split("@")[0] || "Buyer";
+    const nameParts = derivedName.split(/\s+/).filter(Boolean);
+    const firstName = sanitizeChapaText(nameParts[0] ?? "Buyer") || "Buyer";
+    const lastName = sanitizeChapaText(nameParts.slice(1).join(" ") || "User") || "User";
+
     await adminSupabase.from("transactions").update({ tx_ref: txRef }).eq("id", txData.id);
 
     let chapaRes: Response;
@@ -168,6 +187,8 @@ export async function POST(req: Request) {
           amount: totalAmount,
           currency: "ETB",
           email,
+          first_name: firstName,
+          last_name: lastName,
           tx_ref: txRef,
           callback_url: callbackUrl,
           return_url: returnUrl,

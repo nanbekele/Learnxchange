@@ -560,6 +560,7 @@ export type Database = {
       transactions: {
         Row: {
           amount: number
+          buyer_commission_amount: number | null
           buyer_id: string
           commission_amount: number
           course_id: string
@@ -572,6 +573,7 @@ export type Database = {
         }
         Insert: {
           amount?: number
+          buyer_commission_amount?: number | null
           buyer_id: string
           commission_amount?: number
           course_id: string
@@ -584,6 +586,7 @@ export type Database = {
         }
         Update: {
           amount?: number
+          buyer_commission_amount?: number | null
           buyer_id?: string
           commission_amount?: number
           course_id?: string

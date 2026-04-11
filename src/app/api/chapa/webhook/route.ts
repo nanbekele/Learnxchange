@@ -14,13 +14,53 @@ const addDaysIso = (days: number) => {
   return d.toISOString();
 };
 
+const jsonpOk = (callback: string | null) => {
+  if (!callback) return null;
+  const safe = callback.replace(/[^a-zA-Z0-9_$\.]/g, "");
+  if (!safe) return null;
+  return new Response(`${safe}(${JSON.stringify({ ok: true })});`, {
+    headers: {
+      "Content-Type": "application/javascript; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+    status: 200,
+  });
+};
+
+const patchTransactionStatusById = async (args: {
+  supabaseUrl: string;
+  supabaseServiceRoleKey: string;
+  transactionId: string;
+  status: "completed" | "cancelled" | "failed";
+}) => {
+  const url = new URL(`${args.supabaseUrl}/rest/v1/transactions`);
+  url.searchParams.set("id", `eq.${args.transactionId}`);
+
+  const res = await fetch(url.toString(), {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${args.supabaseServiceRoleKey}`,
+      apikey: args.supabaseServiceRoleKey,
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify({ status: args.status }),
+  });
+
+  if (!res.ok) {
+    const raw = await res.text();
+    throw new Error(raw || `PATCH failed with status ${res.status}`);
+  }
+};
+
 export async function GET(req: Request) {
   // Some Chapa integrations call callback_url via GET with query params like `trx_ref`.
   // In production this endpoint should be reachable publicly (not localhost) to avoid browser loopback/CORS blocks.
   try {
     const url = new URL(req.url);
+    const callback = url.searchParams.get("callback");
     const txRef = String(url.searchParams.get("tx_ref") ?? url.searchParams.get("trx_ref") ?? "").trim();
-    if (!txRef) return NextResponse.json({ ok: true });
+    if (!txRef) return jsonpOk(callback) ?? NextResponse.json({ ok: true });
 
     const supabaseUrl = getRequiredEnv("NEXT_PUBLIC_SUPABASE_URL");
     const supabaseServiceRoleKey = getRequiredEnv("SUPABASE_SERVICE_ROLE_KEY");
@@ -32,11 +72,11 @@ export async function GET(req: Request) {
 
     const { data: tx } = await adminSupabase
       .from("transactions")
-      .select("id, status, commission_amount, amount, seller_id, seller_amount")
+      .select("id, status, commission_amount, buyer_commission_amount, amount, seller_id, seller_amount")
       .eq("tx_ref", txRef)
       .single();
 
-    if (!tx || tx.status === "completed") return NextResponse.json({ ok: true });
+    if (!tx || tx.status === "completed") return jsonpOk(callback) ?? NextResponse.json({ ok: true });
 
     const chapaRes = await fetch(`https://api.chapa.co/v1/transaction/verify/${encodeURIComponent(txRef)}`, {
       method: "GET",
@@ -44,12 +84,17 @@ export async function GET(req: Request) {
     });
 
     const chapaJson = await chapaRes.json().catch(() => null);
-    if (!chapaRes.ok) return NextResponse.json({ ok: true });
+    if (!chapaRes.ok) return jsonpOk(callback) ?? NextResponse.json({ ok: true });
 
     const status = String(chapaJson?.data?.status ?? "").toLowerCase();
-    if (status !== "success") return NextResponse.json({ ok: true });
+    if (status !== "success") return jsonpOk(callback) ?? NextResponse.json({ ok: true });
 
-    await adminSupabase.from("transactions").update({ status: "completed" }).eq("id", tx.id);
+    await patchTransactionStatusById({
+      supabaseUrl,
+      supabaseServiceRoleKey,
+      transactionId: tx.id,
+      status: "completed",
+    });
 
     if (tx.seller_id && Number(tx.seller_amount ?? 0) > 0) {
       await adminSupabase.from("seller_earnings").upsert(
@@ -70,18 +115,19 @@ export async function GET(req: Request) {
       .eq("transaction_id", tx.id)
       .limit(1);
 
-    if ((existingCommission ?? []).length === 0 && Number(tx.commission_amount ?? 0) > 0) {
+    const totalCommission = Number(tx.commission_amount ?? 0) + Number(tx.buyer_commission_amount ?? 0);
+    if ((existingCommission ?? []).length === 0 && totalCommission > 0) {
       const rate = Number(tx.amount ?? 0) > 0
-        ? +((Number(tx.commission_amount) / Number(tx.amount)) * 100).toFixed(2)
+        ? +((totalCommission / Number(tx.amount)) * 100).toFixed(2)
         : 0;
       await adminSupabase.from("commissions").insert({
         transaction_id: tx.id,
-        amount: Number(tx.commission_amount),
+        amount: totalCommission,
         rate,
       });
     }
 
-    return NextResponse.json({ ok: true });
+    return jsonpOk(callback) ?? NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ ok: true });
   }
@@ -107,7 +153,7 @@ export async function POST(req: Request) {
 
     const { data: tx } = await adminSupabase
       .from("transactions")
-      .select("id, status, commission_amount, amount, seller_id, seller_amount")
+      .select("id, status, commission_amount, buyer_commission_amount, amount, seller_id, seller_amount")
       .eq("tx_ref", txRef)
       .single();
 
@@ -132,7 +178,12 @@ export async function POST(req: Request) {
     const status = String(chapaJson?.data?.status ?? "").toLowerCase();
 
     if (status === "success") {
-      await adminSupabase.from("transactions").update({ status: "completed" }).eq("id", tx.id);
+      await patchTransactionStatusById({
+        supabaseUrl,
+        supabaseServiceRoleKey,
+        transactionId: tx.id,
+        status: "completed",
+      });
 
       if (tx.seller_id && Number(tx.seller_amount ?? 0) > 0) {
         await adminSupabase.from("seller_earnings").upsert(
@@ -153,13 +204,14 @@ export async function POST(req: Request) {
         .eq("transaction_id", tx.id)
         .limit(1);
 
-      if ((existingCommission ?? []).length === 0 && Number(tx.commission_amount ?? 0) > 0) {
+      const totalCommission = Number(tx.commission_amount ?? 0) + Number(tx.buyer_commission_amount ?? 0);
+      if ((existingCommission ?? []).length === 0 && totalCommission > 0) {
         const rate = Number(tx.amount ?? 0) > 0
-          ? +((Number(tx.commission_amount) / Number(tx.amount)) * 100).toFixed(2)
+          ? +((totalCommission / Number(tx.amount)) * 100).toFixed(2)
           : 0;
         await adminSupabase.from("commissions").insert({
           transaction_id: tx.id,
-          amount: Number(tx.commission_amount),
+          amount: totalCommission,
           rate,
         });
       }
@@ -167,7 +219,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    await adminSupabase.from("transactions").update({ status: "failed" }).eq("id", tx.id);
+    await patchTransactionStatusById({
+      supabaseUrl,
+      supabaseServiceRoleKey,
+      transactionId: tx.id,
+      status: "failed",
+    });
     return NextResponse.json({ ok: true });
   } catch {
     // Webhooks should be resilient and return 200 to avoid repeated retries.

@@ -212,6 +212,22 @@ const CourseDetail = () => {
       toast({ title: hasMyRating ? "Rating updated" : "Thanks for rating this course" });
       setRatingOpen(false);
 
+      // Send notification to course owner (non-blocking)
+      try {
+        await fetch("/api/ratings/notify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            courseId: course.id,
+            raterId: user.id,
+            score: parseInt(myRatingScore, 10),
+            comment: myRatingComment.trim() || undefined,
+          }),
+        });
+      } catch (notifyErr) {
+        console.error("Failed to send rating notification:", notifyErr);
+      }
+
       const { data: ratings } = await supabase
         .from("course_ratings")
         .select("score, comment, rater_id")
@@ -295,16 +311,37 @@ const CourseDetail = () => {
     setExchanging(true);
     try {
       await supabase.auth.refreshSession();
-      const { error } = await supabase.from("exchanges").insert({
+      const { data: exchange, error } = await supabase.from("exchanges").insert({
         requested_course_id: course.id,
         offered_course_id: selectedCourse,
         requester_id: user.id,
         owner_id: course.user_id,
         status: "pending",
-      });
+      }).select().single();
       if (error) throw error;
       toast({ title: "Exchange request sent!", description: "The course owner will review your request." });
       setExchangeOpen(false);
+
+      // Send notification to course owner (non-blocking)
+      if (exchange) {
+        try {
+          await fetch("/api/exchanges/notify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              exchangeId: exchange.id,
+              requestedCourseId: course.id,
+              offeredCourseId: selectedCourse,
+              requesterId: user.id,
+              ownerId: course.user_id,
+              action: "requested",
+            }),
+          });
+        } catch (notifyErr) {
+          console.error("Failed to send exchange notification:", notifyErr);
+        }
+      }
+
       router.push("/transactions");
     } catch (err: any) {
       toast({ title: "Exchange request failed", description: err.message, variant: "destructive" });

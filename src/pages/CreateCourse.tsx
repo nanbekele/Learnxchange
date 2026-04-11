@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, Upload, X, FileText, Image as ImageIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
+import { useNotifications } from "@/hooks/use-notifications";
 import { supabase } from "@/integrations/supabase/client";
 
 const CreateCourse = () => {
@@ -29,6 +30,29 @@ const CreateCourse = () => {
   const router = useRouter();
   const { toast } = useToast();
   const { user } = useAuth();
+  const { refetch } = useNotifications();
+
+  const toSafeStorageName = (name: string) => {
+    const trimmed = String(name ?? "").trim();
+    const parts = trimmed.split(".");
+    const ext = parts.length > 1 ? parts.pop() : "";
+    const base = parts.join(".");
+    const safeBase = base
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9._-]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^[-.]+|[-.]+$/g, "")
+      .slice(0, 120);
+    const safeExt = ext
+      ? ext
+          .normalize("NFKD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-zA-Z0-9]+/g, "")
+          .slice(0, 10)
+      : "";
+    return safeExt ? `${safeBase || "file"}.${safeExt}` : safeBase || "file";
+  };
 
   const handleThumbnailSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -99,7 +123,8 @@ const CreateCourse = () => {
 
       // Upload table of contents (public/free)
       {
-        const path = `${user.id}/${Date.now()}-${tocFile.name}`;
+        const safeName = toSafeStorageName(tocFile.name);
+        const path = `${user.id}/${Date.now()}-${safeName}`;
         const { error: tocUploadErr } = await supabase.storage
           .from("course-tocs")
           .upload(path, tocFile);
@@ -130,7 +155,8 @@ const CreateCourse = () => {
 
       // Upload materials
       for (const file of materialFiles) {
-        const path = `${user.id}/${course.id}/${Date.now()}-${file.name}`;
+        const safeName = toSafeStorageName(file.name);
+        const path = `${user.id}/${course.id}/${Date.now()}-${safeName}`;
         const { error: matUploadErr } = await supabase.storage
           .from("course-materials")
           .upload(path, file);
@@ -145,6 +171,19 @@ const CreateCourse = () => {
           file_type: file.type,
           file_size: file.size,
         });
+      }
+
+      // Send notification email (non-blocking)
+      try {
+        await fetch("/api/courses/notify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ courseId: course.id, userId: user.id }),
+        });
+        // Refetch notifications to update the bell immediately
+        refetch();
+      } catch (notifyErr) {
+        console.error("Failed to send course notification:", notifyErr);
       }
 
       toast({ title: "Course created successfully!" });

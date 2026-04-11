@@ -22,7 +22,8 @@ BEGIN
   IF NEW.status = 'completed' AND OLD.status != 'completed' THEN
     UPDATE platform_balance
     SET balance = balance + NEW.seller_amount,
-        last_updated = now();
+        last_updated = now()
+    WHERE id = (SELECT id FROM platform_balance ORDER BY last_updated DESC LIMIT 1);
   END IF;
   
   RETURN NEW;
@@ -46,7 +47,8 @@ BEGIN
   IF NEW.status = 'paid' AND OLD.status != 'paid' THEN
     UPDATE platform_balance
     SET balance = balance - NEW.amount,
-        last_updated = now();
+        last_updated = now()
+    WHERE id = (SELECT id FROM platform_balance ORDER BY last_updated DESC LIMIT 1);
   END IF;
   
   RETURN NEW;

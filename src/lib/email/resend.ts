@@ -8,8 +8,8 @@ const getRequiredEnv = (key: string) => {
 };
 
 const SMTP_HOST = process.env.SMTP_HOST || "smtp.gmail.com";
-const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
-const SMTP_SECURE = String(process.env.SMTP_SECURE ?? "true").toLowerCase() === "true";
+const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
+const SMTP_SECURE = String(process.env.SMTP_SECURE ?? "false").toLowerCase() === "true";
 const SMTP_USER = getRequiredEnv("SMTP_USER");
 const SMTP_PASS = getRequiredEnv("SMTP_PASS");
 
@@ -23,7 +23,23 @@ const transporter = nodemailer.createTransport({
     user: SMTP_USER,
     pass: SMTP_PASS,
   },
+  tls: {
+    rejectUnauthorized: false,
+  },
 });
+
+let verified = false;
+const verifyTransporter = async () => {
+  if (verified) return;
+  try {
+    await transporter.verify();
+    verified = true;
+    console.log("[email] SMTP transporter verified successfully");
+  } catch (err: any) {
+    console.error("[email] SMTP verification failed:", err?.message || err);
+    throw err;
+  }
+};
 
 export interface EmailOptions {
   to: string | string[];
@@ -43,7 +59,11 @@ export const sendEmail = async (options: EmailOptions) => {
       throw new Error("React email templates are not supported with SMTP. Provide html or text.");
     }
 
+    await verifyTransporter();
+
     const to = Array.isArray(options.to) ? options.to.join(",") : options.to;
+
+    console.log("[email] Sending email to:", to, "subject:", options.subject);
 
     const info = await transporter.sendMail({
       from: FROM_EMAIL,
@@ -57,8 +77,10 @@ export const sendEmail = async (options: EmailOptions) => {
       })),
     });
 
+    console.log("[email] Email sent successfully:", info.messageId);
     return { success: true, id: info.messageId };
   } catch (err: any) {
+    console.error("[email] Failed to send email:", err?.message || err);
     throw err;
   }
 };
