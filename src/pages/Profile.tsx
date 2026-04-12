@@ -52,16 +52,15 @@ const Profile = () => {
 
     supabase
       .from("profiles")
-      .select("avatar_url, reputation_score")
+      .select("avatar_url")
       .eq("user_id", user.id)
       .single()
       .then(({ data }) => {
         setAvatarUrl(data?.avatar_url ?? null);
-        setReputationScore(Number(data?.reputation_score ?? 0));
       });
 
-    // Fetch course ratings count (number of ratings on user's courses)
-    const fetchCourseRatingsCount = async () => {
+    // Fetch course ratings and calculate average (reputation score)
+    const fetchCourseRatings = async () => {
       if (!user) return;
       // Get user's courses
       const { data: userCourses } = await supabase
@@ -71,18 +70,28 @@ const Profile = () => {
       
       if (userCourses && userCourses.length > 0) {
         const courseIds = userCourses.map((c) => c.id);
-        // Count ratings on user's courses
-        const { count } = await supabase
+        // Fetch ratings for user's courses
+        const { data: ratings } = await supabase
           .from("course_ratings")
-          .select("id", { count: "exact", head: true })
+          .select("score")
           .in("course_id", courseIds);
-        setRatingsCount(Number(count ?? 0));
+        
+        const list = ratings ?? [];
+        setRatingsCount(list.length);
+        
+        if (list.length > 0) {
+          const avg = list.reduce((sum, r) => sum + Number(r.score ?? 0), 0) / list.length;
+          setReputationScore(avg);
+        } else {
+          setReputationScore(0);
+        }
       } else {
         setRatingsCount(0);
+        setReputationScore(0);
       }
     };
 
-    fetchCourseRatingsCount();
+    fetchCourseRatings();
   }, [user]);
 
   const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {

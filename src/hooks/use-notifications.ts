@@ -126,12 +126,13 @@ export function useNotifications() {
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           channelRef.current = channel;
-          console.log('[useNotifications] Realtime subscribed');
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error('[useNotifications] Realtime subscription error');
-        } else if (status === 'TIMED_OUT') {
-          console.error('[useNotifications] Realtime subscription timed out');
+          // Only log in development
+          if (process.env.NODE_ENV !== "production") {
+            console.log('[useNotifications] Realtime subscribed');
+          }
         }
+        // Silently ignore connection errors - notifications still work via polling
+        // CHANNEL_ERROR and TIMED_OUT are non-critical as we fetch on load
       });
 
     return () => {

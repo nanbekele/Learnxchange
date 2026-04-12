@@ -128,8 +128,18 @@ const Register = () => {
       </div>
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <Link href="/" className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary">
-            <GraduationCap className="h-6 w-6 text-primary-foreground" />
+          <Link
+            href="/"
+            className="mx-auto mb-4 inline-flex items-center gap-2 rounded-xl px-2 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label="Go to homepage"
+            title="Go to homepage"
+          >
+            <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary transition-opacity hover:opacity-90">
+              <GraduationCap className="h-6 w-6 text-primary-foreground" />
+            </span>
+            <span className="text-sm font-medium text-muted-foreground underline-offset-4 hover:underline">
+              Back to home
+            </span>
           </Link>
           <CardTitle className="font-display text-2xl">Create an account</CardTitle>
           <CardDescription>Join LearnXchange and start sharing knowledge</CardDescription>

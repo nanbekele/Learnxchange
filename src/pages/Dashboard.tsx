@@ -83,7 +83,9 @@ const Dashboard = () => {
     load();
   }, [user]);
 
-  const totalEarnings = sold.reduce((sum, t) => sum + Number(t.seller_amount ?? 0), 0);
+  const totalEarnings = sold
+    .filter((t) => t.status === "completed")
+    .reduce((sum, t) => sum + Number(t.seller_amount ?? 0), 0);
 
   const requestWithdrawal = async () => {
     if (!user) return;

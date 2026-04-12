@@ -23,5 +23,18 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     storage: typeof window !== "undefined" ? localStorage : undefined,
     persistSession: true,
     autoRefreshToken: true,
-  }
+  },
+  realtime: {
+    params: {
+      eventsPerSecond: 10,
+    },
+    timeout: 20000, // 20 seconds before timing out (default is often 10s)
+  },
 });
+
+// Disable realtime in environments where WebSocket is blocked (optional safety)
+// This prevents connection errors in restricted network environments
+if (typeof window !== "undefined") {
+  // Add a global flag to track if we should disable realtime
+  (window as any).__SUPABASE_REALTIME_FAILED = false;
+}

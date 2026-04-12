@@ -6,6 +6,12 @@ import Providers from "./providers";
 export const metadata: Metadata = {
   title: "LearnXchange",
   description: "Buy, sell, and exchange learning resources.",
+  icons: {
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico" },
+    ],
+  },
 };
 
 export default function RootLayout({

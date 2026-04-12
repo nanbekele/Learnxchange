@@ -41,6 +41,28 @@ const fadeUp = {
   }),
 };
 
+const fadeUpItem = {
+  hidden: { opacity: 0, y: 24 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.45, ease: [0, 0, 0.2, 1] as const },
+  },
+};
+
+const staggerContainer = {
+  hidden: {},
+  visible: {
+    transition: {
+      staggerChildren: 0.08,
+      delayChildren: 0.06,
+    },
+  },
+};
+
+const navLinkClass =
+  "relative px-1 py-0.5 text-foreground/90 transition-colors hover:text-foreground after:absolute after:left-0 after:-bottom-0.5 after:h-[2px] after:w-full after:origin-left after:scale-x-0 after:rounded-full after:bg-primary after:transition-transform after:duration-200 hover:after:scale-x-100";
+
 const formatCompact = (n: number) => {
   if (!Number.isFinite(n)) return "—";
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M+`;
@@ -182,17 +204,17 @@ const Landing = () => {
           </Link>
           <div className="flex items-center gap-3">
             <Button variant="ghost" asChild>
-              <Link href="/courses">Browse Courses</Link>
+              <Link href="/courses" className={navLinkClass}>Browse Courses</Link>
             </Button>
             <Button variant="ghost" asChild>
-              <Link href="/about">About</Link>
+              <Link href="/about" className={navLinkClass}>About</Link>
             </Button>
             <Button variant="ghost" asChild>
-              <Link href="/contact">Contact</Link>
+              <Link href="/contact" className={navLinkClass}>Contact</Link>
             </Button>
             {!isAdmin && (
               <Button variant="ghost" asChild>
-                <Link href="/how-to-use">How to Use</Link>
+                <Link href="/how-to-use" className={navLinkClass}>How to Use</Link>
               </Button>
             )}
             <ThemeToggle />
@@ -242,6 +264,16 @@ const Landing = () => {
       {/* Hero */}
       <section className="relative overflow-hidden py-20 md:py-32">
         <div className="absolute inset-0 -z-10">
+          <motion.div
+            className="absolute left-1/2 top-1/3 h-[520px] w-[520px] -translate-x-1/2 rounded-full bg-gradient-to-r from-primary/25 via-accent/20 to-primary/10 blur-[90px]"
+            initial={{ opacity: 0.6, scale: 0.95, x: "-50%", y: 0 }}
+            animate={{
+              opacity: [0.55, 0.75, 0.55],
+              scale: [0.95, 1.05, 0.95],
+              y: [0, -18, 0],
+            }}
+            transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
+          />
           <div className="absolute left-1/2 top-0 h-[600px] w-[600px] -translate-x-1/2 rounded-full bg-primary/10 blur-[120px]" />
           <div className="absolute right-0 top-1/2 h-[400px] w-[400px] rounded-full bg-accent/10 blur-[100px]" />
         </div>
@@ -285,14 +317,18 @@ const Landing = () => {
             variants={fadeUp}
             custom={3}
           >
-            <Button size="lg" className="gap-2 text-base" asChild>
-              <Link href="/register">
-                Start Learning <ArrowRight className="h-4 w-4" />
-              </Link>
-            </Button>
-            <Button size="lg" variant="outline" className="text-base" asChild>
-              <Link href="/courses">Browse Courses</Link>
-            </Button>
+            <motion.div whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }}>
+              <Button size="lg" className="gap-2 text-base" asChild>
+                <Link href="/register">
+                  Start Learning <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            </motion.div>
+            <motion.div whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }}>
+              <Button size="lg" variant="outline" className="text-base" asChild>
+                <Link href="/courses">Browse Courses</Link>
+              </Button>
+            </motion.div>
           </motion.div>
         </div>
       </section>
@@ -315,7 +351,13 @@ const Landing = () => {
               Three ways to access the knowledge you need
             </p>
           </motion.div>
-          <div className="mt-14 grid gap-6 md:grid-cols-3">
+          <motion.div
+            className="mt-14 grid gap-6 md:grid-cols-3"
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true }}
+            variants={staggerContainer}
+          >
             {[
               {
                 icon: ShoppingCart,
@@ -335,16 +377,25 @@ const Landing = () => {
                 desc: "Trade your courses with other users. Give what you know, get what you need.",
                 color: "bg-warning/10 text-warning",
               },
-            ].map((feature, i) => (
+            ].map((feature) => (
               <motion.div
                 key={feature.title}
-                initial="hidden"
-                whileInView="visible"
-                viewport={{ once: true }}
-                variants={fadeUp}
-                custom={i + 1}
+                variants={fadeUpItem}
+                style={{ perspective: 1000 }}
+                whileHover={{ y: -10, rotateX: 6, rotateY: -8, scale: 1.02 }}
+                whileTap={{ scale: 0.99 }}
+                transition={{ type: "spring", stiffness: 260, damping: 18 }}
               >
-                <Card className="h-full border-border/50 transition-shadow hover:shadow-lg">
+                <Card className="relative h-full overflow-hidden border-border/50 transition-shadow hover:shadow-xl">
+                  <motion.div
+                    className="pointer-events-none absolute inset-0 opacity-0"
+                    whileHover={{ opacity: 1 }}
+                    transition={{ duration: 0.25 }}
+                    style={{
+                      background:
+                        "radial-gradient(600px circle at 30% 20%, rgba(99,102,241,0.18), transparent 40%), radial-gradient(500px circle at 70% 80%, rgba(56,189,248,0.14), transparent 45%)",
+                    }}
+                  />
                   <CardContent className="p-8">
                     <div
                       className={`mb-4 flex h-12 w-12 items-center justify-center rounded-xl ${feature.color}`}
@@ -359,7 +410,7 @@ const Landing = () => {
                 </Card>
               </motion.div>
             ))}
-          </div>
+          </motion.div>
         </div>
       </section>
 
@@ -381,7 +432,13 @@ const Landing = () => {
               Get started in three simple steps
             </p>
           </motion.div>
-          <div className="mt-14 grid gap-8 md:grid-cols-3">
+          <motion.div
+            className="mt-14 grid gap-8 md:grid-cols-3"
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true }}
+            variants={staggerContainer}
+          >
             {[
               {
                 step: "01",
@@ -401,21 +458,25 @@ const Landing = () => {
                 title: "Learn & Grow",
                 desc: "Buy, sell, or exchange — build your knowledge and reputation.",
               },
-            ].map((step, i) => (
+            ].map((step) => (
               <motion.div
                 key={step.step}
                 className="text-center"
-                initial="hidden"
-                whileInView="visible"
-                viewport={{ once: true }}
-                variants={fadeUp}
-                custom={i + 1}
+                variants={fadeUpItem}
+                style={{ perspective: 1000 }}
+                whileHover={{ y: -8, rotateX: 4, rotateY: -4, scale: 1.02 }}
+                whileTap={{ scale: 0.99 }}
+                transition={{ type: "spring", stiffness: 260, damping: 18 }}
               >
-                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
+                <motion.div
+                  className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10"
+                  whileHover={{ scale: 1.1 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                >
                   <span className="font-display text-2xl font-bold text-primary">
                     {step.step}
                   </span>
-                </div>
+                </motion.div>
                 <h3 className="font-display text-lg font-semibold text-foreground">
                   {step.title}
                 </h3>
@@ -424,7 +485,7 @@ const Landing = () => {
                 </p>
               </motion.div>
             ))}
-          </div>
+          </motion.div>
         </div>
       </section>
 
@@ -455,8 +516,7 @@ const Landing = () => {
               initial="hidden"
               whileInView="visible"
               viewport={{ once: true }}
-              variants={fadeUp}
-              custom={1}
+              variants={staggerContainer}
             >
               {[
                 { label: "Active Users", value: trustStats.users },
@@ -465,14 +525,19 @@ const Landing = () => {
                 { label: "Courses Sold", value: trustStats.sold },
                 { label: "Courses Bought", value: trustStats.bought },
               ].map((stat) => (
-                <div key={stat.label}>
+                <motion.div
+                  key={stat.label}
+                  variants={fadeUpItem}
+                  whileHover={{ y: -3 }}
+                  transition={{ type: "spring", stiffness: 260, damping: 18 }}
+                >
                   <p className="font-display text-3xl font-bold text-primary">
                     {typeof stat.value === "number" ? formatCompact(stat.value) : "—"}
                   </p>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {stat.label}
                   </p>
-                </div>
+                </motion.div>
               ))}
             </motion.div>
           </div>
@@ -505,18 +570,24 @@ const Landing = () => {
                 </Link>
               </Button>
             </motion.div>
-            <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {courses.map((course, i) => (
+            <motion.div
+              className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3"
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={staggerContainer}
+            >
+              {courses.map((course) => (
                 <motion.div
                   key={course.id}
-                  initial="hidden"
-                  whileInView="visible"
-                  viewport={{ once: true }}
-                  variants={fadeUp}
-                  custom={i + 1}
+                  variants={fadeUpItem}
+                  style={{ perspective: 1000 }}
+                  whileHover={{ y: -10, rotateX: 5, rotateY: -6, scale: 1.02 }}
+                  whileTap={{ scale: 0.99 }}
+                  transition={{ type: "spring", stiffness: 260, damping: 18 }}
                 >
                   <Card
-                    className="relative h-full cursor-pointer overflow-hidden border-border/50 transition-shadow hover:shadow-lg"
+                    className="group relative h-full cursor-pointer overflow-hidden border-border/50 transition-shadow hover:shadow-xl"
                     role="link"
                     tabIndex={0}
                     onClick={() => router.push(`/courses/${course.id}`)}
@@ -527,6 +598,15 @@ const Landing = () => {
                       }
                     }}
                   >
+                    <motion.div
+                      className="pointer-events-none absolute inset-0 z-20 opacity-0"
+                      whileHover={{ opacity: 1 }}
+                      transition={{ duration: 0.25 }}
+                      style={{
+                        background:
+                          "radial-gradient(500px circle at 20% 30%, rgba(99,102,241,0.15), transparent 40%), radial-gradient(400px circle at 80% 70%, rgba(56,189,248,0.12), transparent 45%)",
+                      }}
+                    />
                     <div className="absolute right-3 top-3 z-10 rounded-full border border-border bg-background/90 px-2.5 py-1 text-xs text-muted-foreground shadow-sm backdrop-blur">
                       <span className="inline-flex items-center gap-1">
                         <Star className="h-3.5 w-3.5 text-primary" />
@@ -545,7 +625,7 @@ const Landing = () => {
                         <img
                           src={course.thumbnail_url}
                           alt={course.title}
-                          className="h-full w-full object-cover"
+                          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
                         />
                       </div>
                     )}
@@ -592,7 +672,7 @@ const Landing = () => {
                   </Card>
                 </motion.div>
               ))}
-            </div>
+            </motion.div>
           </div>
         </section>
       )}
