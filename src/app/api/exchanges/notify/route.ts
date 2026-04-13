@@ -11,13 +11,14 @@ const getRequiredEnv = (key: string) => {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { exchangeId, requestedCourseId, offeredCourseId, requesterId, ownerId, action } = body as {
+    const { exchangeId, requestedCourseId, offeredCourseId, requesterId, ownerId, action, rejectionReason } = body as {
       exchangeId?: string;
       requestedCourseId?: string;
       offeredCourseId?: string;
       requesterId?: string;
       ownerId?: string;
       action?: "requested" | "accepted" | "rejected";
+      rejectionReason?: string;
     };
 
     if (!exchangeId || !requestedCourseId || !requesterId || !ownerId || !action) {
@@ -180,11 +181,15 @@ This is an automated email from LearnXchange. Please do not reply.
     } else if (action === "rejected") {
       // Notify requester that their exchange was rejected
       const { data: requesterEmail } = await adminSupabase.auth.admin.getUserById(requesterId);
-      
+
+      // Build notification body with rejection reason if provided
+      const reasonText = rejectionReason ? `\n\nReason: ${rejectionReason}` : "";
+      const notifBody = `${ownerName} declined your exchange request for "${requestedCourse.title}".${reasonText}`;
+
       const { error: notifErr } = await adminSupabase.from("notifications").insert({
         user_id: requesterId,
         title: "Exchange declined",
-        body: `${ownerName} declined your exchange request for "${requestedCourse.title}".`,
+        body: notifBody,
         type: "info",
         link: `/courses`,
       });
@@ -196,6 +201,10 @@ This is an automated email from LearnXchange. Please do not reply.
       if (requesterEmail?.user?.email) {
         const { sendEmail } = await import("@/lib/email/resend");
 
+        const reasonHtml = rejectionReason
+          ? `<p style="background: #f5f5f5; padding: 12px; border-radius: 5px; margin: 15px 0;"><strong>Reason:</strong> ${rejectionReason}</p>`
+          : "";
+
         await sendEmail({
           to: requesterEmail.user.email,
           subject: `Exchange Declined - ${requestedCourse.title}`,
@@ -204,15 +213,16 @@ This is an automated email from LearnXchange. Please do not reply.
               <h1 style="color: #666;">Exchange Declined</h1>
               <p>Hi ${requesterName},</p>
               <p><strong>${ownerName}</strong> declined your exchange request for "${requestedCourse.title}".</p>
+              ${reasonHtml}
               <p>Don't worry! You can browse other courses available for exchange.</p>
-              <a href="${process.env.NEXT_PUBLIC_SITE_URL}/courses" 
-                 style="display: inline-block; background: #0070f3; color: white; padding: 12px 24px; 
+              <a href="${process.env.NEXT_PUBLIC_SITE_URL}/courses"
+                 style="display: inline-block; background: #0070f3; color: white; padding: 12px 24px;
                         text-decoration: none; border-radius: 5px; margin: 20px 0;">
                 Browse Courses
               </a>
             </div>
           `,
-          text: `Exchange Declined\n\nHi ${requesterName},\n\n${ownerName} declined your exchange request for "${requestedCourse.title}".\n\nDon't worry! You can browse other courses available for exchange.\n\nBrowse Courses: ${process.env.NEXT_PUBLIC_SITE_URL}/courses`,
+          text: `Exchange Declined\n\nHi ${requesterName},\n\n${ownerName} declined your exchange request for "${requestedCourse.title}".${reasonText ? reasonText.replace(/\n/g, "\n") : ""}\n\nDon't worry! You can browse other courses available for exchange.\n\nBrowse Courses: ${process.env.NEXT_PUBLIC_SITE_URL}/courses`,
         });
       }
     }

@@ -5,11 +5,30 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
 import { History, Loader2, Check, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import type { Tables } from "@/integrations/supabase/types";
+
+// Pre-defined polite rejection reasons for exchange requests
+const REJECTION_REASONS = [
+  { value: "already_have", label: "I already have this course or similar content" },
+  { value: "not_interested", label: "I'm not interested in the offered course topic" },
+  { value: "different_level", label: "The course level doesn't match my needs" },
+  { value: "busy", label: "I'm currently too busy to engage in exchanges" },
+  { value: "other", label: "Other reason (general decline)" },
+];
 
 const Transactions = () => {
   const { user } = useAuth();
@@ -19,6 +38,12 @@ const Transactions = () => {
   const [coursesMap, setCoursesMap] = useState<Record<string, Tables<"courses">>>({});
   const [profilesMap, setProfilesMap] = useState<Record<string, Tables<"profiles">>>({});
   const [loading, setLoading] = useState(true);
+
+  // Rejection dialog state
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectingExchange, setRejectingExchange] = useState<Tables<"exchanges"> | null>(null);
+  const [selectedReason, setSelectedReason] = useState("not_interested");
+  const [rejecting, setRejecting] = useState(false);
 
   const fetchData = async () => {
     if (!user) return;
@@ -106,10 +131,21 @@ const Transactions = () => {
     };
   }, [user, toast]);
 
-  const handleExchangeAction = async (exchangeId: string, action: "accepted" | "rejected", ex?: Tables<"exchanges">) => {
-    const { error } = await supabase.from("exchanges").update({ status: action }).eq("id", exchangeId);
+  const handleExchangeAction = async (
+    exchangeId: string,
+    action: "accepted" | "rejected",
+    ex?: Tables<"exchanges">,
+    rejectionReason?: string
+  ) => {
+    const updateData: { status: string; rejection_reason?: string | null } = { status: action };
+    if (action === "rejected" && rejectionReason) {
+      updateData.rejection_reason = rejectionReason;
+    }
+
+    const { error } = await supabase.from("exchanges").update(updateData).eq("id", exchangeId);
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
+      return false;
     } else {
       toast({ title: action === "accepted" ? "Exchange accepted!" : "Exchange rejected" });
       const exchange = ex || exchanges.find((e) => e.id === exchangeId);
@@ -118,14 +154,21 @@ const Transactions = () => {
         const offeredCourse = coursesMap[exchange.offered_course_id];
         const requestedCourseTitle = requestedCourse?.title ?? "course";
         const offeredCourseTitle = offeredCourse?.title ?? "course";
-        
+
+        // Get the rejection reason text for notification
+        let reasonText = "";
+        if (action === "rejected" && rejectionReason) {
+          const reason = REJECTION_REASONS.find((r) => r.value === rejectionReason);
+          reasonText = reason ? ` Reason: ${reason.label}` : "";
+        }
+
         // In-app notification
         await supabase.from("notifications").insert({
           user_id: exchange.requester_id,
           title: action === "accepted" ? "Exchange accepted" : "Exchange rejected",
-          body: action === "accepted" 
+          body: action === "accepted"
             ? `Your offer to exchange "${offeredCourseTitle}" for "${requestedCourseTitle}" was accepted.`
-            : `Your offer to exchange "${offeredCourseTitle}" for "${requestedCourseTitle}" was rejected.`,
+            : `Your offer to exchange "${offeredCourseTitle}" for "${requestedCourseTitle}" was rejected.${reasonText}`,
           type: action === "accepted" ? "success" : "warning",
           link: "/transactions",
         });
@@ -142,6 +185,7 @@ const Transactions = () => {
               requesterId: exchange.requester_id,
               ownerId: user?.id,
               action,
+              rejectionReason: reasonText || undefined,
             }),
           });
         } catch (notifyErr) {
@@ -149,6 +193,31 @@ const Transactions = () => {
         }
       }
       fetchData();
+      return true;
+    }
+  };
+
+  // Open rejection dialog
+  const openRejectDialog = (exchange: Tables<"exchanges">) => {
+    setRejectingExchange(exchange);
+    setSelectedReason("not_interested");
+    setRejectDialogOpen(true);
+  };
+
+  // Submit rejection with reason
+  const submitRejection = async () => {
+    if (!rejectingExchange) return;
+    setRejecting(true);
+    const success = await handleExchangeAction(
+      rejectingExchange.id,
+      "rejected",
+      rejectingExchange,
+      selectedReason
+    );
+    setRejecting(false);
+    if (success) {
+      setRejectDialogOpen(false);
+      setRejectingExchange(null);
     }
   };
 
@@ -271,6 +340,7 @@ const Transactions = () => {
                           coursesMap={coursesMap}
                           profilesMap={profilesMap}
                           onAction={handleExchangeAction}
+                          onReject={openRejectDialog}
                         />
                       ))}
                     </div>
@@ -280,6 +350,16 @@ const Transactions = () => {
             </TabsContent>
           </Tabs>
         )}
+
+        {/* Rejection Reason Dialog */}
+        <RejectionDialog
+          open={rejectDialogOpen}
+          onOpenChange={setRejectDialogOpen}
+          onSubmit={submitRejection}
+          selectedReason={selectedReason}
+          onReasonChange={setSelectedReason}
+          rejecting={rejecting}
+        />
       </div>
     </AppLayout>
   );
@@ -302,13 +382,13 @@ const TransactionRow = ({
   return (
     <div className="flex items-center justify-between rounded-lg border border-border p-4">
       <div>
-        <Link href={`/courses/${courseId}`} className="font-medium text-foreground hover:underline">
+        <Link href={`/courses/${courseId}`} className="font-medium text-foreground underline-offset-2 hover:underline hover:text-primary transition-colors">
           {courseName}
         </Link>
         {courseOwnerName ? (
           <p className="text-xs text-muted-foreground">
             Owner:{" "}
-            <Link href={`/users/${t.seller_id}`} className="hover:underline">
+            <Link href={`/users/${t.seller_id}`} className="text-primary underline-offset-2 hover:underline font-medium">
               {courseOwnerName}
             </Link>
           </p>
@@ -328,13 +408,14 @@ const TransactionRow = ({
 
 const ExchangeRow = ({
   ex, userId, coursesMap, onAction,
-  profilesMap,
+  profilesMap, onReject,
 }: {
   ex: Tables<"exchanges">;
   userId: string;
   coursesMap: Record<string, Tables<"courses">>;
   profilesMap: Record<string, Tables<"profiles">>;
   onAction: (id: string, action: "accepted" | "rejected", ex?: Tables<"exchanges">) => void;
+  onReject?: (ex: Tables<"exchanges">) => void;
 }) => {
   const isOwner = ex.owner_id === userId;
   const requestedCourseRow = coursesMap[ex.requested_course_id];
@@ -351,16 +432,16 @@ const ExchangeRow = ({
           {isOwner ? `"${offeredCourse}" offered for your "${requestedCourse}"` : `You offered "${offeredCourse}" for "${requestedCourse}"`}
         </p>
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <Link href={`/courses/${ex.requested_course_id}`} className="hover:underline">
+          <Link href={`/courses/${ex.requested_course_id}`} className="text-primary underline-offset-2 hover:underline font-medium">
             Open requested course
           </Link>
-          <Link href={`/courses/${ex.offered_course_id}`} className="hover:underline">
+          <Link href={`/courses/${ex.offered_course_id}`} className="text-primary underline-offset-2 hover:underline font-medium">
             Open offered course
           </Link>
           {requestedOwnerName ? (
             <span>
               Requested owner:{" "}
-              <Link href={`/users/${requestedCourseRow?.user_id}`} className="hover:underline">
+              <Link href={`/users/${requestedCourseRow?.user_id}`} className="text-primary underline-offset-2 hover:underline font-medium">
                 {requestedOwnerName}
               </Link>
             </span>
@@ -368,7 +449,7 @@ const ExchangeRow = ({
           {offeredOwnerName ? (
             <span>
               Offered owner:{" "}
-              <Link href={`/users/${offeredCourseRow?.user_id}`} className="hover:underline">
+              <Link href={`/users/${offeredCourseRow?.user_id}`} className="text-primary underline-offset-2 hover:underline font-medium">
                 {offeredOwnerName}
               </Link>
             </span>
@@ -382,7 +463,7 @@ const ExchangeRow = ({
             <Button size="sm" variant="ghost" className="text-success" onClick={() => onAction(ex.id, "accepted", ex)}>
               <Check className="h-4 w-4" />
             </Button>
-            <Button size="sm" variant="ghost" className="text-destructive" onClick={() => onAction(ex.id, "rejected", ex)}>
+            <Button size="sm" variant="ghost" className="text-destructive" onClick={() => onReject ? onReject(ex) : onAction(ex.id, "rejected", ex)}>
               <X className="h-4 w-4" />
             </Button>
           </>
@@ -393,8 +474,73 @@ const ExchangeRow = ({
             </Badge>
           </>
         )}
+        {ex.status === "rejected" && ex.rejection_reason && (
+          <p className="text-xs text-muted-foreground mt-1">
+            Reason: {REJECTION_REASONS.find(r => r.value === ex.rejection_reason)?.label || ex.rejection_reason}
+          </p>
+        )}
       </div>
     </div>
+  );
+};
+
+// Rejection Reason Dialog Component
+const RejectionDialog = ({
+  open,
+  onOpenChange,
+  onSubmit,
+  selectedReason,
+  onReasonChange,
+  rejecting,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: () => void;
+  selectedReason: string;
+  onReasonChange: (reason: string) => void;
+  rejecting: boolean;
+}) => {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Decline Exchange Request</DialogTitle>
+          <DialogDescription>
+            Please select a polite reason for declining this exchange request. This will help the requester understand your decision.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="py-4">
+          <RadioGroup
+            value={selectedReason}
+            onValueChange={onReasonChange}
+            className="space-y-3"
+          >
+            {REJECTION_REASONS.map((reason) => (
+              <div key={reason.value} className="flex items-center space-x-2">
+                <RadioGroupItem value={reason.value} id={reason.value} />
+                <Label htmlFor={reason.value} className="text-sm font-normal cursor-pointer">
+                  {reason.label}
+                </Label>
+              </div>
+            ))}
+          </RadioGroup>
+        </div>
+        <DialogFooter className="flex gap-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={rejecting}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={onSubmit}
+            disabled={rejecting}
+            className="gap-2"
+          >
+            {rejecting && <Loader2 className="h-4 w-4 animate-spin" />}
+            Decline Exchange
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };
 

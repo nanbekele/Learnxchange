@@ -226,6 +226,7 @@ export type Database = {
           id: string
           offered_course_id: string
           owner_id: string
+          rejection_reason: string | null
           requested_course_id: string
           requester_id: string
           status: string
@@ -236,6 +237,7 @@ export type Database = {
           id?: string
           offered_course_id: string
           owner_id: string
+          rejection_reason?: string | null
           requested_course_id: string
           requester_id: string
           status?: string
@@ -246,6 +248,7 @@ export type Database = {
           id?: string
           offered_course_id?: string
           owner_id?: string
+          rejection_reason?: string | null
           requested_course_id?: string
           requester_id?: string
           status?: string
