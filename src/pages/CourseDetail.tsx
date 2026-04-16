@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { GraduationCap, ShoppingCart, Repeat, Loader2, ArrowLeft, FileText, Wallet, CheckCircle2, Star } from "lucide-react";
+import { GraduationCap, ShoppingCart, Repeat, Loader2, ArrowLeft, FileText, Wallet, CheckCircle2, Star, Download } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
 
 interface SellerPaymentInfo {
@@ -585,12 +585,34 @@ const CourseDetail = () => {
               <Button
                 className="flex-1 gap-2"
                 size="lg"
-                onClick={() => {
-                  if (typeof window === "undefined") return;
-                  document.getElementById("materials")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                onClick={async () => {
+                  if (typeof window === "undefined" || materials.length === 0) return;
+                  // Download all materials
+                  for (const m of materials) {
+                    let url = m.file_url;
+                    if (!url) continue;
+                    // Get signed URL if needed
+                    if (!url.startsWith("http")) {
+                      const { data } = await supabase.storage.from("course-materials").createSignedUrl(url, 60 * 10);
+                      url = data?.signedUrl ?? "";
+                    }
+                    if (url) {
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = m.file_name || "course-material";
+                      a.target = "_blank";
+                      a.rel = "noreferrer";
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                      // Small delay between downloads
+                      await new Promise((r) => setTimeout(r, 500));
+                    }
+                  }
+                  toast({ title: "Download started", description: `Downloading ${materials.length} course material(s)...` });
                 }}
               >
-                <FileText className="h-4 w-4" /> Open course
+                <Download className="h-4 w-4" /> Download course
               </Button>
             ) : (
               canBuy && (

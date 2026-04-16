@@ -229,6 +229,11 @@ const CreateCourse = () => {
                       <SelectItem value="business">Business</SelectItem>
                       <SelectItem value="language">Language</SelectItem>
                       <SelectItem value="science">Science</SelectItem>
+                      <SelectItem value="recipes">Recipes</SelectItem>
+                      <SelectItem value="health">Health</SelectItem>
+                      <SelectItem value="math">Math</SelectItem>
+                      <SelectItem value="music">Music</SelectItem>
+                      <SelectItem value="photography">Photography</SelectItem>
                       <SelectItem value="other">Other</SelectItem>
                     </SelectContent>
                   </Select>

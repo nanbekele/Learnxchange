@@ -54,6 +54,7 @@ const AdminDashboard = () => {
   const [payoutRequests, setPayoutRequests] = useState<Tables<"payout_requests">[]>([]);
   const [messages, setMessages] = useState<any[]>([]);
   const [sellersWithoutPayout, setSellersWithoutPayout] = useState<any[]>([]);
+  const [reputationByUserId, setReputationByUserId] = useState<Record<string, number>>({});
   const [replyOpen, setReplyOpen] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [activeMessage, setActiveMessage] = useState<any | null>(null);
@@ -90,7 +91,7 @@ const AdminDashboard = () => {
 
   const fetchAll = async () => {
     setLoading(true);
-    const [usersRes, coursesRes, txRes, commRes, payoutRes, settingsRes, msgRes, balanceRes] = await Promise.all([
+    const [usersRes, coursesRes, txRes, commRes, payoutRes, settingsRes, msgRes, balanceRes, courseRatingsRes] = await Promise.all([
       supabase.from("profiles").select("*").order("created_at", { ascending: false }),
       supabase.from("courses").select("*").order("created_at", { ascending: false }),
       supabase.from("transactions").select("*").order("created_at", { ascending: false }),
@@ -99,6 +100,7 @@ const AdminDashboard = () => {
       supabase.from("platform_settings").select("*"),
       supabase.from("contact_messages").select("*").order("created_at", { ascending: false }),
       supabase.from("platform_balance").select("balance").order("last_updated", { ascending: false }).limit(1).maybeSingle(),
+      supabase.from("course_ratings").select("score, courses(user_id)"),
     ]);
 
     setUsers(usersRes.data ?? []);
@@ -107,6 +109,23 @@ const AdminDashboard = () => {
     setCommissions(commRes.data ?? []);
     setPayoutRequests(payoutRes.data ?? []);
     setMessages(msgRes.data ?? []);
+
+    // Compute reputation from course ratings (avg score for each course owner)
+    const repTotals: Record<string, { sum: number; count: number }> = {};
+    const ratingRows = (courseRatingsRes.data ?? []) as Array<{ score: any; courses?: { user_id?: string | null } | null }>;
+    for (const r of ratingRows) {
+      const ownerId = r.courses?.user_id ?? null;
+      if (!ownerId) continue;
+      const score = Number(r.score ?? 0);
+      if (!repTotals[ownerId]) repTotals[ownerId] = { sum: 0, count: 0 };
+      repTotals[ownerId].sum += score;
+      repTotals[ownerId].count += 1;
+    }
+    const repMap: Record<string, number> = {};
+    for (const [ownerId, t] of Object.entries(repTotals)) {
+      repMap[ownerId] = t.count > 0 ? t.sum / t.count : 0;
+    }
+    setReputationByUserId(repMap);
 
     const totalComm = (commRes.data ?? []).reduce((s: number, c: any) => s + Number(c.amount), 0);
     const platformBalance = balanceRes.error ? 0 : Number(balanceRes.data?.balance ?? 0);
@@ -369,7 +388,7 @@ const AdminDashboard = () => {
       u.user_id || u.id,
       u.full_name || "Unnamed",
       u.email,
-      u.reputation_score,
+      (reputationByUserId[String(u.user_id || u.id)] ?? Number(u.reputation_score ?? 0)).toFixed(1),
       new Date(u.created_at).toLocaleString(),
     ]);
     downloadCSV(`users_report_${new Date().toISOString().split("T")[0]}.csv`, headers, rows);
@@ -417,7 +436,8 @@ const AdminDashboard = () => {
     csvContent += "USERS\n";
     csvContent += "ID,Full Name,Email,Reputation Score,Created At\n";
     users.forEach((u) => {
-      csvContent += `"${u.user_id || u.id}","${(u.full_name || "Unnamed").replace(/"/g, '""')}","${(u.email || "").replace(/"/g, '""')}",${u.reputation_score || 0},"${new Date(u.created_at).toLocaleString()}"\n`;
+      const rep = reputationByUserId[String(u.user_id || u.id)] ?? Number(u.reputation_score ?? 0);
+      csvContent += `"${u.user_id || u.id}","${(u.full_name || "Unnamed").replace(/"/g, '""')}","${(u.email || "").replace(/"/g, '""')}",${Number(rep).toFixed(1)},"${new Date(u.created_at).toLocaleString()}"\n`;
     });
     csvContent += "\n";
     
@@ -748,7 +768,9 @@ const AdminDashboard = () => {
                           <p className="text-xs text-muted-foreground">{u.email}</p>
                         </div>
                         <div className="flex items-center gap-2">
-                          <Badge variant="secondary">Rep: {u.reputation_score}</Badge>
+                          <Badge variant="secondary">
+                            Rep: {(reputationByUserId[String(u.user_id || u.id)] ?? Number(u.reputation_score ?? 0)).toFixed(1)}
+                          </Badge>
                           <p className="text-xs text-muted-foreground">{new Date(u.created_at).toLocaleDateString()}</p>
                         </div>
                       </div>

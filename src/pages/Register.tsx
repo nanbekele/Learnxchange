@@ -12,6 +12,7 @@ const Register = () => {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [progressText, setProgressText] = useState<string>("");
@@ -21,6 +22,10 @@ const Register = () => {
     e.preventDefault();
     if (password.length < 6) {
       toast({ variant: "destructive", title: "Password must be at least 6 characters" });
+      return;
+    }
+    if (password !== confirmPassword) {
+      toast({ variant: "destructive", title: "Passwords do not match" });
       return;
     }
     setLoading(true);
@@ -158,6 +163,16 @@ const Register = () => {
               <Label htmlFor="password">Password</Label>
               <Input id="password" type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
               <p className="text-xs text-muted-foreground">At least 6 characters</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirmPassword">Confirm Password</Label>
+              <Input id="confirmPassword" type="password" placeholder="••••••••" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={6} />
+              {confirmPassword && password !== confirmPassword && (
+                <p className="text-xs text-destructive">Passwords do not match</p>
+              )}
+              {confirmPassword && password === confirmPassword && (
+                <p className="text-xs text-success">Passwords match</p>
+              )}
             </div>
           </CardContent>
           <CardFooter className="flex flex-col gap-4">

@@ -209,7 +209,7 @@ export async function POST(req: Request) {
           transaction_id: transactionId,
           amount: Number(tx.seller_amount),
           status: "pending",
-          available_at: addDaysIso(3),
+          available_at: new Date().toISOString(),
         },
         { onConflict: "transaction_id" },
       );
