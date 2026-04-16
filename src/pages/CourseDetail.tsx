@@ -205,10 +205,20 @@ const CourseDetail = () => {
         score: parseInt(myRatingScore, 10),
         comment: myRatingComment.trim() ? myRatingComment.trim() : null,
       };
-      const { error } = await supabase
+
+      const { data: savedRating, error } = await supabase
         .from("course_ratings")
-        .upsert(payload, { onConflict: "course_id,rater_id" });
+        .upsert(payload, { onConflict: "course_id,rater_id" })
+        .select("id, course_id, rater_id, score, comment")
+        .maybeSingle();
+
       if (error) throw error;
+      if (!savedRating?.id) {
+        throw new Error(
+          "Rating could not be verified in the database. Please refresh and try again.",
+        );
+      }
+
       toast({ title: hasMyRating ? "Rating updated" : "Thanks for rating this course" });
       setRatingOpen(false);
 

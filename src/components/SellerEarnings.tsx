@@ -7,8 +7,17 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { Loader2, Wallet, Clock, CheckCircle, DollarSign } from "lucide-react";
+import { Loader2, Wallet, Clock, CheckCircle, DollarSign, User, AlertCircle } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 
 interface EarningsSummary {
   pending: number;
@@ -23,6 +32,9 @@ export default function SellerEarnings() {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [requesting, setRequesting] = useState(false);
+  const [verifyDialogOpen, setVerifyDialogOpen] = useState(false);
+  const [userProfile, setUserProfile] = useState<{ full_name: string | null; email: string } | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<{ method: string; account_name: string; account_number: string } | null>(null);
   const [earnings, setEarnings] = useState<Tables<"seller_earnings">[]>([]);
   const [payoutRequests, setPayoutRequests] = useState<Tables<"payout_requests">[]>([]);
   const [summary, setSummary] = useState<EarningsSummary>({
@@ -91,6 +103,35 @@ export default function SellerEarnings() {
     fetchEarnings();
   }, [user]);
 
+  const openVerifyDialog = async () => {
+    if (!user) return;
+    setRequesting(true);
+    try {
+      // Fetch user profile
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("full_name, user_id")
+        .eq("user_id", user.id)
+        .single();
+
+      // Fetch payment method
+      const { data: payment } = await supabase
+        .from("user_payment_methods")
+        .select("method, account_name, account_number")
+        .eq("user_id", user.id)
+        .eq("is_default", true)
+        .maybeSingle();
+
+      setUserProfile({ full_name: profile?.full_name ?? null, email: user.email ?? "" });
+      setPaymentMethod(payment ?? null);
+      setVerifyDialogOpen(true);
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setRequesting(false);
+    }
+  };
+
   const handleRequestPayout = async () => {
     if (!user) return;
     setRequesting(true);
@@ -116,6 +157,7 @@ export default function SellerEarnings() {
         title: "Withdrawal Requested",
         description: json.message || `Requested ETB ${json.amount?.toFixed(2)}`,
       });
+      setVerifyDialogOpen(false);
       fetchEarnings();
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -205,7 +247,7 @@ export default function SellerEarnings() {
                 Funds will be transferred to your default payment method
               </p>
             </div>
-            <Button onClick={handleRequestPayout} disabled={requesting} className="gap-2">
+            <Button onClick={openVerifyDialog} disabled={requesting} className="gap-2">
               {requesting && <Loader2 className="h-4 w-4 animate-spin" />}
               Withdraw Funds
             </Button>
@@ -299,6 +341,109 @@ export default function SellerEarnings() {
           </CardContent>
         </Card>
       )}
+
+      {/* Withdrawal Verification Dialog */}
+      <Dialog open={verifyDialogOpen} onOpenChange={setVerifyDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <User className="h-5 w-5" />
+              Verify Your Information
+            </DialogTitle>
+            <DialogDescription>
+              Please confirm your details before requesting withdrawal. This information will be used for the payout.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {/* Profile Info */}
+            <div className="rounded-lg border border-border bg-muted/50 p-4 space-y-3">
+              <h4 className="text-sm font-medium text-foreground">Profile Information</h4>
+              <div className="grid gap-2">
+                <div>
+                  <Label className="text-xs text-muted-foreground">Full Name</Label>
+                  <p className="text-sm font-medium text-foreground">
+                    {userProfile?.full_name || <span className="text-destructive italic">Not set</span>}
+                  </p>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Email</Label>
+                  <p className="text-sm font-medium text-foreground">{userProfile?.email}</p>
+                </div>
+              </div>
+              {!userProfile?.full_name && (
+                <p className="text-xs text-destructive flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  Please set your full name in your profile
+                </p>
+              )}
+            </div>
+
+            {/* Payment Method */}
+            <div className="rounded-lg border border-border bg-muted/50 p-4 space-y-3">
+              <h4 className="text-sm font-medium text-foreground">Payment Method</h4>
+              {paymentMethod ? (
+                <div className="grid gap-2">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Method</Label>
+                    <p className="text-sm font-medium text-foreground capitalize">{paymentMethod.method}</p>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Account Name</Label>
+                    <p className="text-sm font-medium text-foreground">{paymentMethod.account_name}</p>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Account Number</Label>
+                    <p className="text-sm font-medium text-foreground">{paymentMethod.account_number}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-2">
+                  <p className="text-sm text-destructive flex items-center justify-center gap-1">
+                    <AlertCircle className="h-4 w-4" />
+                    No payment method set up
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Please add a Telebirr account in your profile first
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Withdrawal Amount */}
+            <div className="rounded-lg border border-success/30 bg-success/5 p-4">
+              <Label className="text-xs text-muted-foreground">Amount to Withdraw</Label>
+              <p className="text-lg font-bold text-success">ETB {summary.available.toFixed(2)}</p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setVerifyDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleRequestPayout}
+              disabled={requesting || !paymentMethod || !userProfile?.full_name}
+              className="gap-2"
+            >
+              {requesting && <Loader2 className="h-4 w-4 animate-spin" />}
+              {!paymentMethod
+                ? "Add Payment Method"
+                : !userProfile?.full_name
+                ? "Update Profile"
+                : "Confirm Withdrawal"}
+            </Button>
+          </DialogFooter>
+
+          {(!paymentMethod || !userProfile?.full_name) && (
+            <p className="text-xs text-muted-foreground text-center mt-2">
+              <a href="/profile" className="text-primary hover:underline">
+                Go to Profile to complete your information →
+              </a>
+            </p>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

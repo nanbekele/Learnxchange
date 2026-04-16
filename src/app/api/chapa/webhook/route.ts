@@ -72,7 +72,7 @@ export async function GET(req: Request) {
 
     const { data: tx } = await adminSupabase
       .from("transactions")
-      .select("id, status, commission_amount, buyer_commission_amount, amount, seller_id, seller_amount")
+      .select("id, status, commission_amount, buyer_commission_amount, amount, seller_id, seller_amount, buyer_id")
       .eq("tx_ref", txRef)
       .single();
 
@@ -127,6 +127,68 @@ export async function GET(req: Request) {
       });
     }
 
+    // Check if seller has payout method set up
+    let sellerHasPayoutMethod = false;
+    if (tx.seller_id) {
+      const { data: sellerPayoutMethod } = await adminSupabase
+        .from("user_payment_methods")
+        .select("method, account_name, account_number")
+        .eq("user_id", tx.seller_id)
+        .eq("is_default", true)
+        .maybeSingle();
+      sellerHasPayoutMethod = !!(sellerPayoutMethod && sellerPayoutMethod.account_number);
+    }
+
+    // Send notifications
+    await Promise.all([
+      // Buyer notification
+      adminSupabase.from("notifications").insert({
+        user_id: tx.buyer_id,
+        title: "Purchase completed",
+        body: `Your purchase was successful. You paid ETB ${Number(tx.amount ?? 0).toFixed(2)}. You can now access your course.`,
+        type: "success",
+        link: "/my-learning",
+      }),
+      // Seller notification
+      tx.seller_id && adminSupabase.from("notifications").insert({
+        user_id: tx.seller_id,
+        title: "Course sold",
+        body: `You earned ETB ${Number(tx.seller_amount ?? 0).toFixed(2)} from a new sale. Earnings will be available for withdrawal in 3 days.`,
+        type: "success",
+        link: "/dashboard",
+      }),
+      // Seller warning: no payout method
+      tx.seller_id && !sellerHasPayoutMethod && adminSupabase.from("notifications").insert({
+        user_id: tx.seller_id,
+        title: "Action required: Set up payout method",
+        body: `You made a sale but haven't set up your Telebirr withdrawal account. Please add your payout method in your profile.`,
+        type: "warning",
+        link: "/profile",
+      }),
+    ]);
+
+    // Notify admins if seller has no payout method
+    if (tx.seller_id && !sellerHasPayoutMethod) {
+      const { data: admins } = await adminSupabase
+        .from("user_roles")
+        .select("user_id")
+        .eq("role", "admin");
+
+      if (admins && admins.length > 0) {
+        await Promise.all(
+          admins.map((admin) =>
+            adminSupabase.from("notifications").insert({
+              user_id: admin.user_id,
+              title: "Seller needs payout setup",
+              body: `A course was sold but the seller hasn't set up their Telebirr account. Seller ID: ${tx.seller_id}, Earnings: ETB ${Number(tx.seller_amount ?? 0).toFixed(2)}.`,
+              type: "warning",
+              link: "/admin",
+            })
+          )
+        );
+      }
+    }
+
     return jsonpOk(callback) ?? NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ ok: true });
@@ -153,7 +215,7 @@ export async function POST(req: Request) {
 
     const { data: tx } = await adminSupabase
       .from("transactions")
-      .select("id, status, commission_amount, buyer_commission_amount, amount, seller_id, seller_amount")
+      .select("id, status, commission_amount, buyer_commission_amount, amount, seller_id, seller_amount, buyer_id")
       .eq("tx_ref", txRef)
       .single();
 
@@ -214,6 +276,68 @@ export async function POST(req: Request) {
           amount: totalCommission,
           rate,
         });
+      }
+
+      // Check if seller has payout method set up
+      let sellerHasPayoutMethod = false;
+      if (tx.seller_id) {
+        const { data: sellerPayoutMethod } = await adminSupabase
+          .from("user_payment_methods")
+          .select("method, account_name, account_number")
+          .eq("user_id", tx.seller_id)
+          .eq("is_default", true)
+          .maybeSingle();
+        sellerHasPayoutMethod = !!(sellerPayoutMethod && sellerPayoutMethod.account_number);
+      }
+
+      // Send notifications
+      await Promise.all([
+        // Buyer notification
+        adminSupabase.from("notifications").insert({
+          user_id: tx.buyer_id,
+          title: "Purchase completed",
+          body: `Your purchase was successful. You paid ETB ${Number(tx.amount ?? 0).toFixed(2)}. You can now access your course.`,
+          type: "success",
+          link: "/my-learning",
+        }),
+        // Seller notification
+        tx.seller_id && adminSupabase.from("notifications").insert({
+          user_id: tx.seller_id,
+          title: "Course sold",
+          body: `You earned ETB ${Number(tx.seller_amount ?? 0).toFixed(2)} from a new sale. Earnings will be available for withdrawal in 3 days.`,
+          type: "success",
+          link: "/dashboard",
+        }),
+        // Seller warning: no payout method
+        tx.seller_id && !sellerHasPayoutMethod && adminSupabase.from("notifications").insert({
+          user_id: tx.seller_id,
+          title: "Action required: Set up payout method",
+          body: `You made a sale but haven't set up your Telebirr withdrawal account. Please add your payout method in your profile.`,
+          type: "warning",
+          link: "/profile",
+        }),
+      ]);
+
+      // Notify admins if seller has no payout method
+      if (tx.seller_id && !sellerHasPayoutMethod) {
+        const { data: admins } = await adminSupabase
+          .from("user_roles")
+          .select("user_id")
+          .eq("role", "admin");
+
+        if (admins && admins.length > 0) {
+          await Promise.all(
+            admins.map((admin) =>
+              adminSupabase.from("notifications").insert({
+                user_id: admin.user_id,
+                title: "Seller needs payout setup",
+                body: `A course was sold but the seller hasn't set up their Telebirr account. Seller ID: ${tx.seller_id}, Earnings: ETB ${Number(tx.seller_amount ?? 0).toFixed(2)}.`,
+                type: "warning",
+                link: "/admin",
+              })
+            )
+          );
+        }
       }
 
       return NextResponse.json({ ok: true });

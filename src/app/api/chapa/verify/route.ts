@@ -235,6 +235,21 @@ export async function POST(req: Request) {
       }
     }
 
+    // Check if seller has payout method set up
+    step = "check_seller_payout_method";
+    let sellerHasPayoutMethod = false;
+    let sellerPaymentMethod: { method: string; account_name: string; account_number: string } | null = null;
+    if (tx.seller_id) {
+      const { data: sellerPayoutMethod } = await adminSupabase
+        .from("user_payment_methods")
+        .select("method, account_name, account_number")
+        .eq("user_id", tx.seller_id)
+        .eq("is_default", true)
+        .maybeSingle();
+      sellerHasPayoutMethod = !!(sellerPayoutMethod && sellerPayoutMethod.account_number);
+      sellerPaymentMethod = sellerPayoutMethod;
+    }
+
     // Send notifications to buyer and seller
     step = "insert_notifications";
     await Promise.all([
@@ -254,7 +269,38 @@ export async function POST(req: Request) {
         type: "success",
         link: "/dashboard",
       }),
+      // Seller notification: payout method not set up
+      tx.seller_id && !sellerHasPayoutMethod && adminSupabase.from("notifications").insert({
+        user_id: tx.seller_id,
+        title: "Action required: Set up payout method",
+        body: `You made a sale but haven't set up your Telebirr withdrawal account. Please add your payout method in your profile to receive ETB ${Number(tx.seller_amount ?? 0).toFixed(2)}.`,
+        type: "warning",
+        link: "/profile",
+      }),
     ]);
+
+    // Notify admins if seller has no payout method
+    if (tx.seller_id && !sellerHasPayoutMethod) {
+      step = "notify_admins_no_payout";
+      const { data: admins } = await adminSupabase
+        .from("user_roles")
+        .select("user_id")
+        .eq("role", "admin");
+
+      if (admins && admins.length > 0) {
+        await Promise.all(
+          admins.map((admin) =>
+            adminSupabase.from("notifications").insert({
+              user_id: admin.user_id,
+              title: "Seller needs payout setup",
+              body: `A course was sold but the seller hasn't set up their Telebirr account. Seller ID: ${tx.seller_id}, Earnings: ETB ${Number(tx.seller_amount ?? 0).toFixed(2)}.`,
+              type: "warning",
+              link: "/admin",
+            })
+          )
+        );
+      }
+    }
 
     // Send email notifications
     step = "send_emails";
@@ -313,6 +359,43 @@ export async function POST(req: Request) {
           amount: Number(tx.amount ?? 0),
           commission: Number(tx.commission_amount ?? 0),
           netAmount: Number(tx.seller_amount ?? 0),
+        });
+      }
+
+      // Send payout setup reminder to seller if no method set up
+      if (sellerEmail && tx.seller_id && !sellerHasPayoutMethod) {
+        const { sendEmail } = await import("@/lib/email/resend");
+        await sendEmail({
+          to: sellerEmail,
+          subject: "Action Required: Set Up Your Telebirr Withdrawal Account",
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h1 style="color: #333;">Set Up Your Payout Method</h1>
+              <p>Hi ${sellerName},</p>
+              <p>Congratulations! You made a sale:</p>
+              <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                <p style="margin: 5px 0;"><strong>Course:</strong> ${courseTitle}</p>
+                <p style="margin: 5px 0;"><strong>Earnings:</strong> ETB ${Number(tx.seller_amount ?? 0).toFixed(2)}</p>
+              </div>
+              <p style="color: #d97706; background: #fef3c7; padding: 12px; border-radius: 5px;">
+                <strong>Important:</strong> You haven't set up your Telebirr withdrawal account yet. 
+                Please add your payout method in your profile to receive your earnings.
+              </p>
+              <a href="${process.env.NEXT_PUBLIC_SITE_URL}/profile" 
+                 style="display: inline-block; background: #0070f3; color: white; padding: 12px 24px; 
+                        text-decoration: none; border-radius: 5px; margin: 20px 0;">
+                Set Up Payout Method
+              </a>
+              <p style="color: #666; font-size: 14px; margin-top: 20px;">
+                Your earnings will be available for withdrawal in 3 days. Once you set up your Telebirr account, you can request a payout from your dashboard.
+              </p>
+              <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+              <p style="color: #999; font-size: 12px;">
+                This is an automated email from LearnXchange. Please do not reply.
+              </p>
+            </div>
+          `,
+          text: `Set Up Your Payout Method\n\nHi ${sellerName},\n\nCongratulations! You made a sale:\n\nCourse: ${courseTitle}\nEarnings: ETB ${Number(tx.seller_amount ?? 0).toFixed(2)}\n\nIMPORTANT: You haven't set up your Telebirr withdrawal account yet. Please add your payout method in your profile to receive your earnings.\n\nSet Up Payout Method: ${process.env.NEXT_PUBLIC_SITE_URL}/profile\n\nYour earnings will be available for withdrawal in 3 days. Once you set up your Telebirr account, you can request a payout from your dashboard.\n\n---\nThis is an automated email from LearnXchange.`,
         });
       }
     } catch (emailErr: any) {

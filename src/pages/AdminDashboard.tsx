@@ -53,6 +53,7 @@ const AdminDashboard = () => {
   const [commissions, setCommissions] = useState<any[]>([]);
   const [payoutRequests, setPayoutRequests] = useState<Tables<"payout_requests">[]>([]);
   const [messages, setMessages] = useState<any[]>([]);
+  const [sellersWithoutPayout, setSellersWithoutPayout] = useState<any[]>([]);
   const [replyOpen, setReplyOpen] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [activeMessage, setActiveMessage] = useState<any | null>(null);
@@ -124,6 +125,30 @@ const AdminDashboard = () => {
     if (rateRow) setCommissionRate(rateRow.value);
     if (methodRow) setPaymentMethod(methodRow.value);
     if (accountRow) setPaymentAccount(accountRow.value);
+
+    // Fetch sellers without payout methods who have sales
+    const sellersWithSales = Array.from(new Set((txRes.data ?? [])
+      .filter((t: any) => t.status === "completed" && t.seller_id)
+      .map((t: any) => t.seller_id)));
+    
+    if (sellersWithSales.length > 0) {
+      const { data: paymentMethods } = await supabase
+        .from("user_payment_methods")
+        .select("user_id")
+        .eq("is_default", true);
+      
+      const sellersWithMethods = new Set((paymentMethods ?? []).map((p: any) => p.user_id));
+      const sellersMissingPayout = sellersWithSales.filter((id: string) => !sellersWithMethods.has(id));
+      
+      if (sellersMissingPayout.length > 0) {
+        const missingSellers = (usersRes.data ?? []).filter((u: any) => sellersMissingPayout.includes(u.user_id));
+        setSellersWithoutPayout(missingSellers);
+      } else {
+        setSellersWithoutPayout([]);
+      }
+    } else {
+      setSellersWithoutPayout([]);
+    }
 
     setLoading(false);
   };
@@ -1086,6 +1111,42 @@ const AdminDashboard = () => {
                 )}
               </CardContent>
             </Card>
+
+            {/* Sellers Without Payout Methods */}
+            {sellersWithoutPayout.length > 0 && (
+              <Card className="mt-6 border-warning/30 bg-warning/5">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-warning">
+                    <Mail className="h-5 w-5" />
+                    Sellers Without Payout Methods ({sellersWithoutPayout.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    These sellers have made sales but haven't set up their Telebirr withdrawal account yet. Contact them to set up their payout method.
+                  </p>
+                  <div className="space-y-3">
+                    {sellersWithoutPayout.map((seller) => (
+                      <div key={seller.user_id} className="rounded-lg border border-warning/20 bg-background p-4">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-foreground">{seller.full_name || "Unknown"}</p>
+                            <p className="text-xs text-muted-foreground">User ID: {seller.user_id}</p>
+                          </div>
+                          <a
+                            href={`mailto:${seller.email}?subject=Set Up Your Payout Method - LearnXchange&body=Hi ${seller.full_name || "Seller"},%0D%0A%0D%0AWe noticed you haven't set up your Telebirr withdrawal account yet. Please add your payout method in your profile so you can receive your earnings from course sales.%0D%0A%0D%0AGo to: ${typeof window !== "undefined" ? window.location.origin : ""}/profile%0D%0A%0D%0AThank you!`}
+                            className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-warning rounded-md hover:bg-warning/90"
+                          >
+                            <Mail className="h-4 w-4" />
+                            Contact via Email
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
         </Tabs>
 
