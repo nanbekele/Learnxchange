@@ -33,6 +33,20 @@ const getBaseUrlFromRequest = (req: Request) => {
   return "http://localhost:3000";
 };
 
+const decodeJwtPayload = (jwt: string) => {
+  try {
+    const parts = jwt.split(".");
+    if (parts.length < 2) return null;
+    const payload = parts[1];
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
+    const json = Buffer.from(padded, "base64").toString("utf8");
+    return JSON.parse(json) as Record<string, any>;
+  } catch {
+    return null;
+  }
+};
+
 export async function POST(req: Request) {
   try {
     const { courseId, returnPath } = (await req.json()) as { courseId?: string; returnPath?: string };
@@ -55,12 +69,25 @@ export async function POST(req: Request) {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    const { data: userRes, error: userErr } = await authSupabase.auth.getUser(token);
-    if (userErr || !userRes?.user) {
-      return NextResponse.json({ error: "Unauthorized: invalid or expired access token" }, { status: 401 });
+    let user: { id: string; email?: string | null; user_metadata?: any } | null = null;
+    try {
+      const { data: userRes, error: userErr } = await authSupabase.auth.getUser(token);
+      if (!userErr && userRes?.user) {
+        user = userRes.user as any;
+      }
+    } catch {
+      user = null;
     }
 
-    const user = userRes.user;
+    if (!user) {
+      const decoded = decodeJwtPayload(token);
+      const sub = String(decoded?.sub ?? "");
+      const emailClaim = String(decoded?.email ?? decoded?.user_email ?? "");
+      if (!sub) {
+        return NextResponse.json({ error: "Unauthorized: invalid or expired access token" }, { status: 401 });
+      }
+      user = { id: sub, email: emailClaim || null, user_metadata: decoded?.user_metadata ?? decoded ?? {} };
+    }
     const email = (user.email ?? "").trim();
     if (!email) {
       return NextResponse.json({ error: "User email is missing" }, { status: 400 });

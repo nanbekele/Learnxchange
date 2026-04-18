@@ -587,32 +587,68 @@ const CourseDetail = () => {
                 size="lg"
                 onClick={async () => {
                   if (typeof window === "undefined" || materials.length === 0) return;
-                  // Download all materials
-                  for (const m of materials) {
-                    let url = m.file_url;
-                    if (!url) continue;
-                    // Get signed URL if needed
-                    if (!url.startsWith("http")) {
-                      const { data } = await supabase.storage.from("course-materials").createSignedUrl(url, 60 * 10);
-                      url = data?.signedUrl ?? "";
-                    }
-                    if (url) {
+                  const downloadBlob = async (url: string, filename: string) => {
+                    const res = await fetch(url);
+                    if (!res.ok) throw new Error(`Failed to download ${filename}`);
+                    const blob = await res.blob();
+                    const objectUrl = URL.createObjectURL(blob);
+                    try {
                       const a = document.createElement("a");
-                      a.href = url;
-                      a.download = m.file_name || "course-material";
-                      a.target = "_blank";
-                      a.rel = "noreferrer";
+                      a.href = objectUrl;
+                      a.download = filename;
                       document.body.appendChild(a);
                       a.click();
                       document.body.removeChild(a);
-                      // Small delay between downloads
-                      await new Promise((r) => setTimeout(r, 500));
+                    } finally {
+                      URL.revokeObjectURL(objectUrl);
                     }
+                  };
+
+                  toast({
+                    title: "Download started",
+                    description:
+                      materials.length === 1
+                        ? "Downloading 1 course material..."
+                        : `Downloading all ${materials.length} course materials...`,
+                  });
+
+                  // Download all materials
+                  try {
+                    for (const m of materials) {
+                      let url = m.file_url;
+                      if (!url) continue;
+                      const filename = m.file_name || "course-material";
+
+                      // Get signed URL if needed
+                      if (!url.startsWith("http")) {
+                        const { data } = await supabase.storage.from("course-materials").createSignedUrl(url, 60 * 10);
+                        url = data?.signedUrl ?? "";
+                      }
+
+                      if (url) {
+                        await downloadBlob(url, filename);
+                        // Small delay between downloads
+                        await new Promise((r) => setTimeout(r, 300));
+                      }
+                    }
+
+                    toast({
+                      title: "Download complete",
+                      description:
+                        materials.length === 1
+                          ? "Your material has been downloaded."
+                          : "All materials have been downloaded.",
+                    });
+                  } catch (err: any) {
+                    toast({
+                      title: "Download failed",
+                      description: err?.message || "Could not download course materials.",
+                      variant: "destructive",
+                    });
                   }
-                  toast({ title: "Download started", description: `Downloading ${materials.length} course material(s)...` });
                 }}
               >
-                <Download className="h-4 w-4" /> Download course
+                <Download className="h-4 w-4" /> {materials.length > 1 ? "Download all materials" : "Download material"}
               </Button>
             ) : (
               canBuy && (

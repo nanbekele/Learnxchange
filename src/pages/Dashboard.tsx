@@ -11,6 +11,25 @@ import { ShoppingCart, Upload, Repeat, DollarSign, Loader2 } from "lucide-react"
 import type { Tables } from "@/integrations/supabase/types";
 import { useToast } from "@/hooks/use-toast";
 import SellerEarnings from "@/components/SellerEarnings";
+import {
+  ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 interface CourseWithDetails extends Tables<"courses"> {}
 interface BuyerDetails { full_name: string | null; email: string | null; }
@@ -86,6 +105,78 @@ const Dashboard = () => {
   const totalEarnings = sold
     .filter((t) => t.status === "completed")
     .reduce((sum, t) => sum + Number(t.seller_amount ?? 0), 0);
+
+  const analytics = (() => {
+    const DAYS = 14;
+    const dayMs = 24 * 60 * 60 * 1000;
+    const today = new Date();
+    const start = new Date(today.getTime() - (DAYS - 1) * dayMs);
+
+    const toDayKey = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${dd}`;
+    };
+    const dayLabel = (key: string) => {
+      const [y, m, d] = key.split("-").map((x) => Number(x));
+      const dt = new Date(y, m - 1, d);
+      return dt.toLocaleDateString(undefined, { month: "short", day: "2-digit" });
+    };
+
+    const days: {
+      key: string;
+      label: string;
+      boughtCount: number;
+      soldCount: number;
+      spent: number;
+      earned: number;
+    }[] = [];
+
+    for (let i = 0; i < DAYS; i++) {
+      const dt = new Date(start.getTime() + i * dayMs);
+      const key = toDayKey(dt);
+      days.push({ key, label: dayLabel(key), boughtCount: 0, soldCount: 0, spent: 0, earned: 0 });
+    }
+
+    const byKey: Record<string, (typeof days)[number]> = {};
+    days.forEach((d) => {
+      byKey[d.key] = d;
+    });
+
+    bought.forEach((t) => {
+      if (!t.created_at) return;
+      const key = toDayKey(new Date(String(t.created_at)));
+      const b = byKey[key];
+      if (!b) return;
+      b.boughtCount += 1;
+      b.spent += Number(t.amount ?? 0);
+    });
+
+    sold.forEach((t) => {
+      if (!t.created_at) return;
+      const key = toDayKey(new Date(String(t.created_at)));
+      const b = byKey[key];
+      if (!b) return;
+      b.soldCount += 1;
+      b.earned += Number(t.seller_amount ?? 0);
+    });
+
+    const activityBreakdown = [
+      { name: "Bought", value: bought.length },
+      { name: "Sold", value: sold.length },
+      { name: "Exchanged", value: exchanges.length },
+    ].filter((x) => x.value > 0);
+
+    return {
+      days,
+      activityBreakdown,
+      totals: {
+        spent: bought.reduce((s, t) => s + Number(t.amount ?? 0), 0),
+        earned: sold.reduce((s, t) => s + Number(t.seller_amount ?? 0), 0),
+      },
+    };
+  })();
 
   const requestWithdrawal = async () => {
     if (!user) return;
@@ -197,13 +288,116 @@ const Dashboard = () => {
         {loading ? (
           <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
         ) : (
-          <Tabs defaultValue="bought" className="space-y-4">
+          <Tabs defaultValue="analytics" className="space-y-4">
             <TabsList>
+              <TabsTrigger value="analytics">Analytics</TabsTrigger>
               <TabsTrigger value="bought">Bought ({bought.length})</TabsTrigger>
               <TabsTrigger value="sold">Sold ({sold.length})</TabsTrigger>
               <TabsTrigger value="exchanged">Exchanged ({exchanges.length})</TabsTrigger>
               <TabsTrigger value="earnings">Earnings</TabsTrigger>
             </TabsList>
+            <TabsContent value="analytics">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                      <span>Purchases & Sales (Last 14 Days)</span>
+                      <span className="text-sm font-normal text-muted-foreground">
+                        Spent: ETB {analytics.totals.spent.toFixed(2)}
+                      </span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ChartContainer
+                      className="h-[260px] w-full"
+                      config={{
+                        boughtCount: { label: "Bought", color: "hsl(var(--primary))" },
+                        soldCount: { label: "Sold", color: "hsl(var(--accent))" },
+                      }}
+                    >
+                      <LineChart data={analytics.days} margin={{ left: 12, right: 12 }}>
+                        <CartesianGrid vertical={false} />
+                        <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                        <YAxis allowDecimals={false} width={36} tickLine={false} axisLine={false} />
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <ChartLegend content={<ChartLegendContent />} />
+                        <Line type="monotone" dataKey="boughtCount" stroke="var(--color-boughtCount)" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="soldCount" stroke="var(--color-soldCount)" strokeWidth={2} dot={false} />
+                      </LineChart>
+                    </ChartContainer>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                      <span>Spent vs Earned (Last 14 Days)</span>
+                      <span className="text-sm font-normal text-muted-foreground">
+                        Earned: ETB {analytics.totals.earned.toFixed(2)}
+                      </span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ChartContainer
+                      className="h-[260px] w-full"
+                      config={{
+                        spent: { label: "Spent", color: "hsl(var(--warning))" },
+                        earned: { label: "Earned", color: "hsl(var(--success))" },
+                      }}
+                    >
+                      <BarChart data={analytics.days} margin={{ left: 12, right: 12 }}>
+                        <CartesianGrid vertical={false} />
+                        <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                        <YAxis width={52} tickLine={false} axisLine={false} />
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <ChartLegend content={<ChartLegendContent />} />
+                        <Bar dataKey="spent" fill="var(--color-spent)" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="earned" fill="var(--color-earned)" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ChartContainer>
+                  </CardContent>
+                </Card>
+
+                <Card className="lg:col-span-2">
+                  <CardHeader>
+                    <CardTitle>Activity Breakdown</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {analytics.activityBreakdown.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No activity yet.</p>
+                    ) : (
+                      <ChartContainer
+                        className="h-[260px] w-full"
+                        config={{
+                          Bought: { label: "Bought", color: "hsl(var(--primary))" },
+                          Sold: { label: "Sold", color: "hsl(var(--accent))" },
+                          Exchanged: { label: "Exchanged", color: "hsl(var(--warning))" },
+                        }}
+                      >
+                        <PieChart>
+                          <ChartTooltip content={<ChartTooltipContent nameKey="name" />} />
+                          <Pie
+                            data={analytics.activityBreakdown}
+                            dataKey="value"
+                            nameKey="name"
+                            innerRadius={60}
+                            outerRadius={92}
+                            strokeWidth={1}
+                          >
+                            {analytics.activityBreakdown.map((d, i) => {
+                              const key = String(d.name);
+                              const colorVar = `--color-${key}`;
+                              return <Cell key={`${key}-${i}`} fill={`var(${colorVar}, hsl(var(--primary)))`} />;
+                            })}
+                          </Pie>
+                          <ChartLegend content={<ChartLegendContent nameKey="name" />} />
+                        </PieChart>
+                      </ChartContainer>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
             <TabsContent value="bought">
               <Card>
                 <CardHeader><CardTitle className="text-lg">Purchased Courses</CardTitle></CardHeader>

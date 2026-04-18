@@ -17,6 +17,25 @@ import {
   TrendingUp, ShoppingCart, Trash2, Shield, Wallet, Mail,
   Search, Filter, X, ArrowUpDown, Calendar, Tag, Download
 } from "lucide-react";
+import {
+  ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -55,6 +74,7 @@ const AdminDashboard = () => {
   const [messages, setMessages] = useState<any[]>([]);
   const [sellersWithoutPayout, setSellersWithoutPayout] = useState<any[]>([]);
   const [reputationByUserId, setReputationByUserId] = useState<Record<string, number>>({});
+  const [adminUserIds, setAdminUserIds] = useState<Set<string>>(new Set());
   const [replyOpen, setReplyOpen] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [activeMessage, setActiveMessage] = useState<any | null>(null);
@@ -91,7 +111,7 @@ const AdminDashboard = () => {
 
   const fetchAll = async () => {
     setLoading(true);
-    const [usersRes, coursesRes, txRes, commRes, payoutRes, settingsRes, msgRes, balanceRes, courseRatingsRes] = await Promise.all([
+    const [usersRes, coursesRes, txRes, commRes, payoutRes, settingsRes, msgRes, balanceRes, courseRatingsRes, adminRolesRes] = await Promise.all([
       supabase.from("profiles").select("*").order("created_at", { ascending: false }),
       supabase.from("courses").select("*").order("created_at", { ascending: false }),
       supabase.from("transactions").select("*").order("created_at", { ascending: false }),
@@ -101,6 +121,7 @@ const AdminDashboard = () => {
       supabase.from("contact_messages").select("*").order("created_at", { ascending: false }),
       supabase.from("platform_balance").select("balance").order("last_updated", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("course_ratings").select("score, courses(user_id)"),
+      supabase.from("user_roles").select("user_id, role").eq("role", "admin"),
     ]);
 
     setUsers(usersRes.data ?? []);
@@ -109,6 +130,16 @@ const AdminDashboard = () => {
     setCommissions(commRes.data ?? []);
     setPayoutRequests(payoutRes.data ?? []);
     setMessages(msgRes.data ?? []);
+
+    if (!adminRolesRes?.error) {
+      const next = new Set<string>();
+      (adminRolesRes.data ?? []).forEach((r: any) => {
+        if (r?.user_id) next.add(String(r.user_id));
+      });
+      setAdminUserIds(next);
+    } else {
+      setAdminUserIds(new Set());
+    }
 
     // Compute reputation from course ratings (avg score for each course owner)
     const repTotals: Record<string, { sum: number; count: number }> = {};
@@ -573,6 +604,110 @@ const AdminDashboard = () => {
     return result;
   }, [transactions, txSearch, txStatusFilter, txSortBy]);
 
+  const analytics = useMemo(() => {
+    const DAYS = 14;
+    const dayMs = 24 * 60 * 60 * 1000;
+    const today = new Date();
+    const start = new Date(today.getTime() - (DAYS - 1) * dayMs);
+
+    const toDayKey = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${dd}`;
+    };
+
+    const dayLabel = (key: string) => {
+      const [y, m, d] = key.split("-").map((x) => Number(x));
+      const dt = new Date(y, m - 1, d);
+      return dt.toLocaleDateString(undefined, { month: "short", day: "2-digit" });
+    };
+
+    const days: { key: string; label: string; transactions: number; volume: number; commissions: number; newUsers: number }[] = [];
+    for (let i = 0; i < DAYS; i++) {
+      const dt = new Date(start.getTime() + i * dayMs);
+      const key = toDayKey(dt);
+      days.push({ key, label: dayLabel(key), transactions: 0, volume: 0, commissions: 0, newUsers: 0 });
+    }
+    const daysByKey: Record<string, (typeof days)[number]> = {};
+    days.forEach((d) => {
+      daysByKey[d.key] = d;
+    });
+
+    (transactions ?? []).forEach((t: any) => {
+      if (!t?.created_at) return;
+      const dt = new Date(String(t.created_at));
+      const key = toDayKey(dt);
+      const bucket = daysByKey[key];
+      if (!bucket) return;
+      bucket.transactions += 1;
+      bucket.volume += Number(t.amount ?? 0);
+      bucket.commissions += Number(t.commission_amount ?? 0);
+    });
+
+    (users ?? []).forEach((u: any) => {
+      if (!u?.created_at) return;
+      const dt = new Date(String(u.created_at));
+      const key = toDayKey(dt);
+      const bucket = daysByKey[key];
+      if (!bucket) return;
+      bucket.newUsers += 1;
+    });
+
+    const txStatusCount: Record<string, number> = {};
+    (transactions ?? []).forEach((t: any) => {
+      const s = String(t?.status ?? "unknown");
+      txStatusCount[s] = (txStatusCount[s] ?? 0) + 1;
+    });
+    const txStatusData = Object.entries(txStatusCount)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+
+    const categoryCount: Record<string, number> = {};
+    (courses ?? []).forEach((c: any) => {
+      const cat = String(c?.category ?? "other");
+      categoryCount[cat] = (categoryCount[cat] ?? 0) + 1;
+    });
+    const categoryData = Object.entries(categoryCount)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8);
+
+    const adminCount = (users ?? []).filter((u: any) => adminUserIds.has(String(u?.user_id))).length;
+    const regularCount = Math.max(0, (users ?? []).length - adminCount);
+    const roleBreakdown = [
+      { name: "admin", value: adminCount },
+      { name: "user", value: regularCount },
+    ];
+
+    const sellerIds = new Set<string>();
+    (courses ?? []).forEach((c: any) => {
+      if (c?.user_id) sellerIds.add(String(c.user_id));
+    });
+    const buyerIds = new Set<string>();
+    (transactions ?? []).forEach((t: any) => {
+      if (t?.buyer_id) buyerIds.add(String(t.buyer_id));
+    });
+    const sellerCount = sellerIds.size;
+    const buyerCount = buyerIds.size;
+    const sellerBuyerBreakdown = [
+      { name: "sellers", value: sellerCount },
+      { name: "buyers", value: buyerCount },
+    ];
+
+    return {
+      days,
+      txStatusData,
+      categoryData,
+      roleBreakdown,
+      sellerBuyerBreakdown,
+      totals: {
+        volume: (transactions ?? []).reduce((s: number, t: any) => s + Number(t?.amount ?? 0), 0),
+        commissions: (transactions ?? []).reduce((s: number, t: any) => s + Number(t?.commission_amount ?? 0), 0),
+      },
+    };
+  }, [transactions, courses, users, adminUserIds]);
+
   if (adminLoading || loading) {
     return (
       <AppLayout>
@@ -617,16 +752,199 @@ const AdminDashboard = () => {
           ))}
         </div>
 
-        <Tabs defaultValue="settings" className="space-y-4">
+        <Tabs defaultValue="analytics" className="space-y-4">
           <TabsList>
+            <TabsTrigger value="analytics">Analytics</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
-            <TabsTrigger value="messages">Messages ({messages.length})</TabsTrigger>
+            <TabsTrigger value="messages">Messages ({messages.filter((m: any) => String(m?.status ?? "open") !== "replied").length})</TabsTrigger>
             <TabsTrigger value="users">Users ({users.length})</TabsTrigger>
             <TabsTrigger value="courses">Courses ({courses.length})</TabsTrigger>
             <TabsTrigger value="transactions">Transactions ({transactions.length})</TabsTrigger>
             <TabsTrigger value="commissions">Commissions ({commissions.length})</TabsTrigger>
             <TabsTrigger value="payouts">Payouts ({payoutRequests.length})</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="analytics">
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span>New Users (Last 14 Days)</span>
+                    <span className="text-sm font-normal text-muted-foreground">Total: {analytics.days.reduce((s, d) => s + d.newUsers, 0)}</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ChartContainer
+                    className="h-[260px] w-full"
+                    config={{
+                      newUsers: { label: "New Users", color: "hsl(var(--primary))" },
+                    }}
+                  >
+                    <LineChart data={analytics.days} margin={{ left: 12, right: 12 }}>
+                      <CartesianGrid vertical={false} />
+                      <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                      <YAxis allowDecimals={false} width={36} tickLine={false} axisLine={false} />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Line type="monotone" dataKey="newUsers" stroke="var(--color-newUsers)" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Users Breakdown</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <ChartContainer
+                      className="h-[240px] w-full"
+                      config={{
+                        admin: { label: "admin", color: "hsl(var(--primary))" },
+                        user: { label: "user", color: "hsl(var(--muted-foreground))" },
+                      }}
+                    >
+                      <PieChart>
+                        <ChartTooltip content={<ChartTooltipContent nameKey="name" />} />
+                        <Pie data={analytics.roleBreakdown} dataKey="value" nameKey="name" innerRadius={52} outerRadius={80} strokeWidth={1}>
+                          {analytics.roleBreakdown.map((d, i) => {
+                            const key = String(d.name).toLowerCase();
+                            const colorVar = `--color-${key}`;
+                            return <Cell key={`${d.name}-${i}`} fill={`var(${colorVar}, hsl(var(--primary)))`} />;
+                          })}
+                        </Pie>
+                        <ChartLegend content={<ChartLegendContent nameKey="name" />} />
+                      </PieChart>
+                    </ChartContainer>
+
+                    <ChartContainer
+                      className="h-[240px] w-full"
+                      config={{
+                        sellers: { label: "sellers", color: "hsl(var(--accent))" },
+                        buyers: { label: "buyers", color: "hsl(var(--success))" },
+                      }}
+                    >
+                      <PieChart>
+                        <ChartTooltip content={<ChartTooltipContent nameKey="name" />} />
+                        <Pie data={analytics.sellerBuyerBreakdown} dataKey="value" nameKey="name" innerRadius={52} outerRadius={80} strokeWidth={1}>
+                          {analytics.sellerBuyerBreakdown.map((d, i) => {
+                            const key = String(d.name).toLowerCase();
+                            const colorVar = `--color-${key}`;
+                            return <Cell key={`${d.name}-${i}`} fill={`var(${colorVar}, hsl(var(--primary)))`} />;
+                          })}
+                        </Pie>
+                        <ChartLegend content={<ChartLegendContent nameKey="name" />} />
+                      </PieChart>
+                    </ChartContainer>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span>Transactions (Last 14 Days)</span>
+                    <span className="text-sm font-normal text-muted-foreground">Total: {analytics.days.reduce((s, d) => s + d.transactions, 0)}</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ChartContainer
+                    className="h-[260px] w-full"
+                    config={{
+                      transactions: { label: "Transactions", color: "hsl(var(--primary))" },
+                    }}
+                  >
+                    <LineChart data={analytics.days} margin={{ left: 12, right: 12 }}>
+                      <CartesianGrid vertical={false} />
+                      <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                      <YAxis allowDecimals={false} width={36} tickLine={false} axisLine={false} />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Line type="monotone" dataKey="transactions" stroke="var(--color-transactions)" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span>Volume & Commissions (Last 14 Days)</span>
+                    <span className="text-sm font-normal text-muted-foreground">ETB {analytics.totals.volume.toFixed(2)}</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ChartContainer
+                    className="h-[260px] w-full"
+                    config={{
+                      volume: { label: "Volume", color: "hsl(var(--accent))" },
+                      commissions: { label: "Commissions", color: "hsl(var(--success))" },
+                    }}
+                  >
+                    <BarChart data={analytics.days} margin={{ left: 12, right: 12 }}>
+                      <CartesianGrid vertical={false} />
+                      <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                      <YAxis width={52} tickLine={false} axisLine={false} />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <ChartLegend content={<ChartLegendContent />} />
+                      <Bar dataKey="volume" fill="var(--color-volume)" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="commissions" fill="var(--color-commissions)" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Transactions by Status</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ChartContainer
+                    className="h-[260px] w-full"
+                    config={{
+                      completed: { label: "completed", color: "hsl(var(--success))" },
+                      pending: { label: "pending", color: "hsl(var(--warning))" },
+                      failed: { label: "failed", color: "hsl(var(--destructive))" },
+                      unknown: { label: "unknown", color: "hsl(var(--muted-foreground))" },
+                    }}
+                  >
+                    <PieChart>
+                      <ChartTooltip content={<ChartTooltipContent nameKey="name" />} />
+                      <Pie data={analytics.txStatusData} dataKey="value" nameKey="name" innerRadius={58} outerRadius={86} strokeWidth={1}>
+                        {analytics.txStatusData.map((d, i) => {
+                          const key = String(d.name).toLowerCase();
+                          const colorVar = `--color-${key}`;
+                          return <Cell key={`${d.name}-${i}`} fill={`var(${colorVar}, hsl(var(--primary)))`} />;
+                        })}
+                      </Pie>
+                      <ChartLegend content={<ChartLegendContent nameKey="name" />} />
+                    </PieChart>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Top Course Categories</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ChartContainer
+                    className="h-[260px] w-full"
+                    config={{
+                      categories: { label: "Categories", color: "hsl(var(--primary))" },
+                    }}
+                  >
+                    <BarChart data={analytics.categoryData} layout="vertical" margin={{ left: 24, right: 12 }}>
+                      <CartesianGrid horizontal={false} />
+                      <XAxis type="number" tickLine={false} axisLine={false} allowDecimals={false} />
+                      <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} width={120} />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Bar dataKey="value" fill="var(--color-categories)" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
 
           {/* Messages */}
           <TabsContent value="messages">
@@ -1156,7 +1474,11 @@ const AdminDashboard = () => {
                             <p className="text-xs text-muted-foreground">User ID: {seller.user_id}</p>
                           </div>
                           <a
-                            href={`mailto:${seller.email}?subject=Set Up Your Payout Method - LearnXchange&body=Hi ${seller.full_name || "Seller"},%0D%0A%0D%0AWe noticed you haven't set up your Telebirr withdrawal account yet. Please add your payout method in your profile so you can receive your earnings from course sales.%0D%0A%0D%0AGo to: ${typeof window !== "undefined" ? window.location.origin : ""}/profile%0D%0A%0D%0AThank you!`}
+                            href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(String(seller.email || ""))}&su=${encodeURIComponent("Set Up Your Payout Method - LearnXchange")}&body=${encodeURIComponent(
+                              `Hi ${seller.full_name || "Seller"},\n\nWe noticed you haven't set up your Telebirr withdrawal account yet. Please add your payout method in your profile so you can receive your earnings from course sales.\n\nGo to: ${typeof window !== "undefined" ? window.location.origin : ""}/profile\n\nThank you!`
+                            )}`}
+                            target="_blank"
+                            rel="noreferrer"
                             className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-warning rounded-md hover:bg-warning/90"
                           >
                             <Mail className="h-4 w-4" />
@@ -1222,7 +1544,11 @@ const AdminDashboard = () => {
               </Button>
               {selectedSeller?.email && (
                 <a 
-                  href={`mailto:${selectedSeller.email}?subject=Payment Details Required for Payout&body=Hi ${selectedSeller.full_name || "Seller"},%0D%0A%0D%0APlease provide your payment method details to receive your payout of ETB ${Number(selectedPayout?.amount ?? 0).toFixed(2)}.%0D%0A%0D%0AThank you!`}
+                  href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(String(selectedSeller.email || ""))}&su=${encodeURIComponent("Payment Details Required for Payout")}&body=${encodeURIComponent(
+                    `Hi ${selectedSeller.full_name || "Seller"},\n\nPlease provide your payment method details to receive your payout of ETB ${Number(selectedPayout?.amount ?? 0).toFixed(2)}.\n\nThank you!`
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
                   className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-primary rounded-md hover:bg-primary/90"
                 >
                   <Mail className="h-4 w-4" />

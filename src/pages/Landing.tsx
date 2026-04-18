@@ -235,6 +235,9 @@ const Landing = () => {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
                   <DropdownMenuItem onSelect={() => router.push("/dashboard")}>Portal</DropdownMenuItem>
+                  {isAdmin && (
+                    <DropdownMenuItem onSelect={() => router.push("/admin")}>Admin Dashboard</DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onSelect={() => router.push("/profile")}>My Profile</DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem

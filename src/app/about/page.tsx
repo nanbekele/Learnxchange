@@ -23,11 +23,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { BookOpen, GraduationCap, Repeat, Shield, ShoppingCart, Star } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAdmin } from "@/hooks/use-admin";
 import { supabase } from "@/integrations/supabase/client";
 
 export default function AboutPage() {
   const router = useRouter();
   const { user, signOut } = useAuth();
+  const { isAdmin } = useAdmin();
   const [myAvatarUrl, setMyAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -92,6 +94,9 @@ export default function AboutPage() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
                   <DropdownMenuItem onSelect={() => router.push("/dashboard")}>Portal</DropdownMenuItem>
+                  {isAdmin && (
+                    <DropdownMenuItem onSelect={() => router.push("/admin")}>Admin Dashboard</DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onSelect={() => router.push("/profile")}>My Profile</DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem

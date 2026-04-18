@@ -18,14 +18,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import { Clock, GraduationCap, Mail, MapPin, Phone } from "lucide-react";
+import { Clock, GraduationCap, HelpCircle, Mail, MapPin, MessageSquare, Phone, SendHorizontal, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAdmin } from "@/hooks/use-admin";
 import { supabase } from "@/integrations/supabase/client";
 import { PLATFORM_OWNER_EMAIL } from "@/lib/platform";
 
 export default function ContactPage() {
   const router = useRouter();
   const { user, signOut } = useAuth();
+  const { isAdmin } = useAdmin();
   const { toast } = useToast();
   const [myAvatarUrl, setMyAvatarUrl] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -149,6 +151,9 @@ export default function ContactPage() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
                   <DropdownMenuItem onSelect={() => router.push("/dashboard")}>Portal</DropdownMenuItem>
+                  {isAdmin && (
+                    <DropdownMenuItem onSelect={() => router.push("/admin")}>Admin Dashboard</DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onSelect={() => router.push("/profile")}>My Profile</DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem

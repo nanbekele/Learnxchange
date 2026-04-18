@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,23 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const expired = localStorage.getItem("learnxchange_session_expired") === "1";
+      if (expired) {
+        localStorage.removeItem("learnxchange_session_expired");
+        toast({
+          title: "Session expired",
+          description: "You were logged out after 2 minutes of inactivity. Please log in again.",
+          variant: "destructive",
+        });
+      }
+    } catch {
+      // ignore
+    }
+  }, [toast]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
