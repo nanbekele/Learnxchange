@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +36,7 @@ interface CourseWithDetails extends Tables<"courses"> {}
 interface BuyerDetails { full_name: string | null; email: string | null; }
 
 const Dashboard = () => {
+  const router = useRouter();
   const { user } = useAuth();
   const { toast } = useToast();
   const displayName = user?.user_metadata?.full_name || "User";
@@ -43,9 +45,51 @@ const Dashboard = () => {
   const [sold, setSold] = useState<(Tables<"transactions"> & { course?: CourseWithDetails; buyer?: BuyerDetails })[]>([]);
   const [exchanges, setExchanges] = useState<Tables<"exchanges">[]>([]);
   const [loading, setLoading] = useState(true);
+  const [recommended, setRecommended] = useState<any[]>([]);
+  const [recLoading, setRecLoading] = useState(false);
   const [earningsPending, setEarningsPending] = useState(0);
   const [earningsAvailable, setEarningsAvailable] = useState(0);
   const [withdrawing, setWithdrawing] = useState(false);
+
+  useEffect(() => {
+    const fetchRecommended = async () => {
+      if (!user) {
+        setRecommended([]);
+        return;
+      }
+
+      setRecLoading(true);
+      try {
+        const { data: sess } = await supabase.auth.getSession();
+        const token = sess?.session?.access_token;
+        if (!token) {
+          setRecommended([]);
+          return;
+        }
+
+        const res = await fetch("/api/recommend", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ user_id: user.id }),
+        });
+
+        const json = await res.json().catch(() => null);
+        if (!res.ok) {
+          setRecommended([]);
+          return;
+        }
+
+        setRecommended(Array.isArray(json?.courses) ? json.courses : []);
+      } finally {
+        setRecLoading(false);
+      }
+    };
+
+    fetchRecommended();
+  }, [user?.id]);
 
   useEffect(() => {
     if (!user) return;
@@ -73,7 +117,14 @@ const Dashboard = () => {
       setEarningsPending(pending);
       setEarningsAvailable(available);
 
-      // Fetch course and buyer details for transactions
+      // Set base lists immediately so the dashboard renders fast.
+      // Course/profile enrichment happens in the background.
+      setBought((boughtRes.data ?? []).map((t) => ({ ...t })) as any);
+      setSold((soldRes.data ?? []).map((t) => ({ ...t })) as any);
+      setExchanges(exchRes.data ?? []);
+      setLoading(false);
+
+      // Fetch course and buyer details for transactions (background enrichment)
       const allCourseIds = [
         ...(boughtRes.data ?? []).map((t) => t.course_id),
         ...(soldRes.data ?? []).map((t) => t.course_id),
@@ -81,23 +132,34 @@ const Dashboard = () => {
       const allBuyerIds = [
         ...(soldRes.data ?? []).map((t) => t.buyer_id),
       ];
-      const uniqueIds = [...new Set(allCourseIds)];
-      const uniqueBuyerIds = [...new Set(allBuyerIds)];
-      let coursesMap: Record<string, CourseWithDetails> = {};
-      let buyersMap: Record<string, { full_name: string | null; email: string | null }> = {};
-      if (uniqueIds.length > 0) {
-        const { data: courses } = await supabase.from("courses").select("*").in("id", uniqueIds);
-        courses?.forEach((c) => { coursesMap[c.id] = c; });
-      }
-      if (uniqueBuyerIds.length > 0) {
-        const { data: buyers } = await supabase.from("profiles").select("user_id, full_name, email").in("user_id", uniqueBuyerIds);
-        buyers?.forEach((b) => { buyersMap[b.user_id] = b; });
-      }
+      const uniqueIds = Array.from(new Set(allCourseIds.filter(Boolean).map(String)));
+      const uniqueBuyerIds = Array.from(new Set(allBuyerIds.filter(Boolean).map(String)));
 
-      setBought((boughtRes.data ?? []).map((t) => ({ ...t, course: coursesMap[t.course_id] })));
-      setSold((soldRes.data ?? []).map((t) => ({ ...t, course: coursesMap[t.course_id], buyer: buyersMap[t.buyer_id] })));
-      setExchanges(exchRes.data ?? []);
-      setLoading(false);
+      const [coursesRes, buyersRes] = await Promise.all([
+        uniqueIds.length > 0
+          ? supabase.from("courses").select("*").in("id", uniqueIds)
+          : Promise.resolve({ data: [] as any[] } as any),
+        uniqueBuyerIds.length > 0
+          ? supabase.from("profiles").select("user_id, full_name, email").in("user_id", uniqueBuyerIds)
+          : Promise.resolve({ data: [] as any[] } as any),
+      ]);
+
+      const coursesMap: Record<string, CourseWithDetails> = {};
+      ((coursesRes as any)?.data ?? []).forEach((c: any) => {
+        if (c?.id) coursesMap[String(c.id)] = c;
+      });
+
+      const buyersMap: Record<string, { full_name: string | null; email: string | null }> = {};
+      ((buyersRes as any)?.data ?? []).forEach((b: any) => {
+        if (b?.user_id) buyersMap[String(b.user_id)] = b;
+      });
+
+      setBought((boughtRes.data ?? []).map((t) => ({ ...t, course: coursesMap[String(t.course_id)] })));
+      setSold((soldRes.data ?? []).map((t) => ({
+        ...t,
+        course: coursesMap[String(t.course_id)],
+        buyer: buyersMap[String(t.buyer_id)],
+      })));
     };
     load();
   }, [user]);
@@ -297,7 +359,57 @@ const Dashboard = () => {
               <TabsTrigger value="earnings">Earnings</TabsTrigger>
             </TabsList>
             <TabsContent value="analytics">
-              <div className="grid gap-4 lg:grid-cols-2">
+              <div className="grid gap-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Recommended for You</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {recLoading ? (
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        {Array.from({ length: 3 }).map((_, i) => (
+                          <div key={i} className="h-44 rounded-xl border border-border/50 bg-muted/30" />
+                        ))}
+                      </div>
+                    ) : recommended.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        Recommendations will improve as you browse and purchase courses.
+                      </p>
+                    ) : (
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        {recommended.map((course: any) => (
+                          <Card
+                            key={course.id}
+                            className="cursor-pointer overflow-hidden border-border/50 transition-shadow hover:shadow-lg"
+                            onClick={() => router.push(`/courses/${course.id}`)}
+                          >
+                            {course.thumbnail_url && (
+                              <div className="aspect-video w-full overflow-hidden bg-muted">
+                                <img src={course.thumbnail_url} alt={course.title} className="h-full w-full object-cover" />
+                              </div>
+                            )}
+                            <CardContent className="p-5">
+                              <div className="mb-2 flex items-center gap-2">
+                                {course.category && <Badge variant="secondary" className="text-xs">{course.category}</Badge>}
+                                {course.availability && (
+                                  <Badge variant="outline" className="text-xs">
+                                    {course.availability === "sale" ? "For Sale" : course.availability === "exchange" ? "For Exchange" : "Sale & Exchange"}
+                                  </Badge>
+                                )}
+                              </div>
+                              <h3 className="font-display text-lg font-semibold text-foreground line-clamp-1">{course.title}</h3>
+                              {Number(course.price ?? 0) > 0 && (
+                                <p className="mt-2 font-display text-xl font-bold text-primary">ETB {Number(course.price).toFixed(2)}</p>
+                              )}
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <div className="grid gap-4 lg:grid-cols-2">
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center justify-between">
@@ -396,6 +508,7 @@ const Dashboard = () => {
                     )}
                   </CardContent>
                 </Card>
+                </div>
               </div>
             </TabsContent>
             <TabsContent value="bought">

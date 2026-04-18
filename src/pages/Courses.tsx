@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -21,11 +21,93 @@ const CoursesContent = () => {
   const [category, setCategory] = useState("all");
   const [availability, setAvailability] = useState("all");
   const [courses, setCourses] = useState<Tables<"courses">[]>([]);
+  const [recommended, setRecommended] = useState<any[]>([]);
+  const [recLoading, setRecLoading] = useState(false);
   const [ownersMap, setOwnersMap] = useState<Record<string, Tables<"profiles">>>({});
   const [ownerFilterName, setOwnerFilterName] = useState<string>("");
   const [courseRatingsMap, setCourseRatingsMap] = useState<Record<string, { avg: number; count: number }>>({});
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
+  const trackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const fetchRecommended = async () => {
+      if (!user) {
+        setRecommended([]);
+        return;
+      }
+      if (ownerId) {
+        setRecommended([]);
+        return;
+      }
+
+      setRecLoading(true);
+      try {
+        const { data: sess } = await supabase.auth.getSession();
+        const token = sess?.session?.access_token;
+        if (!token) {
+          setRecommended([]);
+          return;
+        }
+
+        const res = await fetch("/api/recommend", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ user_id: user.id }),
+        });
+
+        const json = await res.json().catch(() => null);
+        if (!res.ok) {
+          setRecommended([]);
+          return;
+        }
+        setRecommended(Array.isArray(json?.courses) ? json.courses : []);
+      } finally {
+        setRecLoading(false);
+      }
+    };
+
+    fetchRecommended();
+  }, [user?.id, ownerId]);
+
+  useEffect(() => {
+    const track = async () => {
+      if (!user) return;
+      if (ownerId) return;
+
+      try {
+        const { data: sess } = await supabase.auth.getSession();
+        const token = sess?.session?.access_token;
+        if (!token) return;
+
+        await fetch("/api/search/track", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ query: searchQuery, category, availability }),
+        });
+      } catch {
+        // ignore
+      }
+    };
+
+    if (trackTimerRef.current) {
+      clearTimeout(trackTimerRef.current);
+    }
+    trackTimerRef.current = setTimeout(track, 800);
+
+    return () => {
+      if (trackTimerRef.current) {
+        clearTimeout(trackTimerRef.current);
+        trackTimerRef.current = null;
+      }
+    };
+  }, [user?.id, ownerId, searchQuery, category, availability]);
 
   useEffect(() => {
     const fetchCourses = async () => {
@@ -42,11 +124,22 @@ const CoursesContent = () => {
       setCourses(nextCourses);
 
       const courseIds = nextCourses.map((c) => c.id);
+
+      const ownerIds = [...new Set(nextCourses.map((c) => c.user_id).filter(Boolean))];
+      const [ratingsRes, profsRes] = await Promise.all([
+        courseIds.length > 0
+          ? supabase
+              .from("course_ratings")
+              .select("course_id, score")
+              .in("course_id", courseIds)
+          : Promise.resolve({ data: [] as any[] } as any),
+        ownerIds.length > 0
+          ? supabase.from("profiles").select("*").in("user_id", ownerIds)
+          : Promise.resolve({ data: [] as any[] } as any),
+      ]);
+
+      const ratings = (ratingsRes as any)?.data ?? [];
       if (courseIds.length > 0) {
-        const { data: ratings } = await supabase
-          .from("course_ratings")
-          .select("course_id, score")
-          .in("course_id", courseIds);
         const acc: Record<string, { sum: number; count: number }> = {};
         (ratings ?? []).forEach((r: any) => {
           const cid = String(r.course_id);
@@ -63,12 +156,11 @@ const CoursesContent = () => {
         setCourseRatingsMap({});
       }
 
-      const ownerIds = [...new Set(nextCourses.map((c) => c.user_id).filter(Boolean))];
+      const profs = (profsRes as any)?.data ?? [];
       if (ownerIds.length > 0) {
-        const { data: profs } = await supabase.from("profiles").select("*").in("user_id", ownerIds);
         const map: Record<string, Tables<"profiles">> = {};
-        (profs ?? []).forEach((p) => {
-          map[p.user_id] = p;
+        (profs ?? []).forEach((p: any) => {
+          if (p?.user_id) map[String(p.user_id)] = p;
         });
         setOwnersMap(map);
       } else {
@@ -114,6 +206,63 @@ const CoursesContent = () => {
           </Button>
         )}
       </div>
+
+      {user && !ownerId && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-display text-xl font-semibold text-foreground">Recommended for You</h2>
+          </div>
+          {recLoading ? (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="h-44 rounded-xl border border-border/50 bg-muted/30" />
+              ))}
+            </div>
+          ) : recommended.length === 0 ? (
+            <div className="rounded-xl border border-border/50 bg-muted/20 p-4 text-sm text-muted-foreground">
+              Recommendations will appear here after you purchase courses.
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {recommended.map((course: any) => (
+                <Card
+                  key={course.id}
+                  className="cursor-pointer overflow-hidden border-border/50 transition-shadow hover:shadow-lg"
+                  role="link"
+                  tabIndex={0}
+                  onClick={() => router.push(`/courses/${course.id}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      router.push(`/courses/${course.id}`);
+                    }
+                  }}
+                >
+                  {course.thumbnail_url && (
+                    <div className="aspect-video w-full overflow-hidden bg-muted">
+                      <img src={course.thumbnail_url} alt={course.title} className="h-full w-full object-cover" />
+                    </div>
+                  )}
+                  <CardContent className="p-5">
+                    <div className="mb-2 flex items-center gap-2">
+                      {course.category && <Badge variant="secondary" className="text-xs">{course.category}</Badge>}
+                      {course.availability && (
+                        <Badge variant="outline" className="text-xs">
+                          {course.availability === "sale" ? "For Sale" : course.availability === "exchange" ? "For Exchange" : "Sale & Exchange"}
+                        </Badge>
+                      )}
+                    </div>
+                    <h3 className="font-display text-lg font-semibold text-foreground line-clamp-1">{course.title}</h3>
+                    {Number(course.price ?? 0) > 0 && (
+                      <p className="mt-2 font-display text-xl font-bold text-primary">ETB {Number(course.price).toFixed(2)}</p>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-col gap-3 sm:flex-row">

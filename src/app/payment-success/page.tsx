@@ -43,7 +43,24 @@ function PaymentSuccessContent() {
       const { data: sessionRes } = await supabase.auth.getSession();
       const token = sessionRes.session?.access_token;
 
-      for (let attempt = 0; attempt < 8; attempt++) {
+      // Fast-path: webhook may have already marked the transaction completed.
+      try {
+        const { data: existingTx } = await supabase
+          .from("transactions")
+          .select("id, tx_ref, amount, status, created_at, course:courses(title)")
+          .eq("id", transactionId)
+          .single();
+
+        if (existingTx && String((existingTx as any).status) === "completed") {
+          setState("success");
+          setTransaction(existingTx as unknown as TransactionDetails);
+          return;
+        }
+      } catch {
+        // ignore
+      }
+
+      for (let attempt = 0; attempt < 6; attempt++) {
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
         };
@@ -70,7 +87,8 @@ function PaymentSuccessContent() {
         }
 
         if (res.status === 202) {
-          await new Promise((r) => setTimeout(r, 2000));
+          const delayMs = Math.min(1000 * Math.pow(2, attempt), 6000);
+          await new Promise((r) => setTimeout(r, delayMs));
           continue;
         }
 

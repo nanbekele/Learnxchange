@@ -153,6 +153,24 @@ const CreateCourse = () => {
 
       if (courseErr) throw courseErr;
 
+      // Generate and store embedding (non-blocking)
+      try {
+        const { data: sess } = await supabase.auth.getSession();
+        const token = sess?.session?.access_token;
+        if (token) {
+          await fetch("/api/courses/embed", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ courseId: course.id }),
+          });
+        }
+      } catch {
+        // ignore
+      }
+
       // Upload materials
       for (const file of materialFiles) {
         const safeName = toSafeStorageName(file.name);

@@ -287,7 +287,6 @@ const CourseDetail = () => {
     if (!user || !course) return;
     setBuying(true);
     try {
-      await supabase.auth.refreshSession();
       const { data: sessionRes } = await supabase.auth.getSession();
       const token = sessionRes.session?.access_token;
       if (!token) throw new Error("You must be logged in");
@@ -320,7 +319,6 @@ const CourseDetail = () => {
     if (!user || !course || !selectedCourse) return;
     setExchanging(true);
     try {
-      await supabase.auth.refreshSession();
       const { data: exchange, error } = await supabase.from("exchanges").insert({
         requested_course_id: course.id,
         offered_course_id: selectedCourse,
